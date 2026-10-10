@@ -1,0 +1,29 @@
+# --- env / secrets ---
+.env
+.env.*.local
+!.env.example
+
+# --- backend (Python / uv) ---
+backend/.venv/
+backend/var/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- frontend (Node / Vite) ---
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# --- data (uploaded docs, generated indices — never committed) ---
+var/
+data/uploads/
+!data/demo/
+
+# --- OS / editor ---
+.DS_Store
+*.swp

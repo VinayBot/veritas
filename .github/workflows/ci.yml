@@ -1,0 +1,79 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  no-stubs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No unfinished-work markers in production code
+        run: make no-stubs
+
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.12.23"
+      - name: Install dependencies
+        run: uv sync
+      - name: ruff check
+        run: uv run ruff check .
+      - name: ruff format --check
+        run: uv run ruff format --check .
+      - name: mypy
+        run: uv run mypy app
+      - name: pytest
+        run: uv run pytest
+
+  redteam:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.12.23"
+      - name: Install dependencies
+        run: uv sync
+      # No Ollama in CI (would mean pulling multi-GB models on every run) — Llama Guard calls
+      # fail open to "safe" via LlmUnavailableError, so this gate exercises the regex + DeBERTa
+      # injection-classifier layers for real. Verified locally that the suite still clears both
+      # hard gates with Llama Guard unavailable (95.2% block rate, right at the 95% floor) —
+      # see docs/DECISIONS.md. `make redteam` run with Ollama up (e.g. locally) also exercises
+      # Llama Guard and is the fuller signal; this is the CI-safe subset of it, not a separate gate.
+      - name: Red-team suite (block rate >= 95%, false-positive rate <= 10%)
+        run: uv run python scripts/run_redteam.py
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build
+
+  # Added once it lands: eval-smoke, a small `make eval` smoke run (Phase 8 — evaluation).

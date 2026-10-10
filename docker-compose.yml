@@ -1,0 +1,76 @@
+name: veritas
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+      - backend-var:/app/var
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://localhost:8000}
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+
+  # --- profile: qdrant --- (alternative to the default embedded ChromaDB)
+  qdrant:
+    image: qdrant/qdrant:v1.11.5
+    profiles: ["qdrant"]
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+
+  # --- profile: neo4j --- (alternative to the default in-process NetworkX graph store)
+  neo4j:
+    image: neo4j:5.24
+    profiles: ["neo4j"]
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      - NEO4J_AUTH=${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-veritas_dev}
+    volumes:
+      - neo4j-data:/data
+
+  # --- profile: redis --- (alternative to the default in-memory semantic cache)
+  redis:
+    image: redis:7-alpine
+    profiles: ["redis"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+  # --- profile: ollama --- (containerized local LLM runtime; most users instead run
+  # Ollama natively on the host, which is why it is not in the always-on service set)
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ollama"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+
+volumes:
+  backend-var:
+  qdrant-data:
+  neo4j-data:
+  redis-data:
+  ollama-models:

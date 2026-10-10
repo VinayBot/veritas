@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Veritas</title>
+    <!--
+      Theme bootstrap: light is the default canvas (see src/index.css) as of
+      the ingestion-reliability pass — docs/DECISIONS.md. Apply `.light` to
+      <html> synchronously, before first paint, unless this viewer
+      previously made an explicit choice to go back to dark (persisted by
+      src/lib/theme.tsx under the same key) — otherwise the page would flash
+      dark-then-light (or vice versa) once React mounts. Guarded the same
+      way the React-side reader is: localStorage can throw.
+    -->
+    <script>
+      (function () {
+        try {
+          var theme = window.localStorage.getItem('veritas:theme')
+          if (theme !== 'dark') document.documentElement.classList.add('light')
+        } catch (e) {
+          document.documentElement.classList.add('light')
+        }
+      })()
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
