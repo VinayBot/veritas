@@ -8,11 +8,15 @@ test('full workspace -> dashboard -> architecture -> graph -> guardrails -> eval
   page,
   request,
 }) => {
+  const backendPort = process.env.PLAYWRIGHT_BACKEND_PORT ?? '8000'
+
   await test.step('backend is reachable', async () => {
-    const health = await request.get('http://localhost:8000/api/v1/health').catch(() => null)
+    const health = await request
+      .get(`http://localhost:${backendPort}/api/v1/health`)
+      .catch(() => null)
     expect(
       health?.ok(),
-      'Backend not reachable at :8000 — start it first (make backend-dev or make dev)',
+      `Backend not reachable at :${backendPort} — start it first (make backend-dev or make dev)`,
     ).toBeTruthy()
   })
 

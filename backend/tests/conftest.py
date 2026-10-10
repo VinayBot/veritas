@@ -3,19 +3,27 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import tempfile
+from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
 
+# A fresh, unique-per-process temp directory — not a fixed ./var/test-data path — so two test
+# runs (e.g. a stray concurrent `pytest` invocation, or two CI jobs) never share a SQLite file
+# or collide on cleanup. Reproduced live: a concurrent run against the same fixed path once
+# corrupted shared DB state and produced 7 unrelated-looking failures (see docs/DECISIONS.md).
+_TEST_DATA_DIR = Path(tempfile.mkdtemp(prefix="veritas-test-"))
+
 os.environ.setdefault("APP_ENV", "test")
-os.environ.setdefault("DATA_DIR", "./var/test-data")
-os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./var/test-data/test.db")
+os.environ.setdefault("DATA_DIR", str(_TEST_DATA_DIR))
+os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{_TEST_DATA_DIR}/test.db")
 os.environ.setdefault("PII_HMAC_SECRET", "test-secret")
 os.environ.setdefault("PII_VAULT_KEY", "2OMpEZVoa7egSJnHWsOhcj5Ir-PV_EJXOfVA047Z29g=")
 
-import pytest
-from httpx import ASGITransport, AsyncClient
+import pytest  # noqa: E402 — must follow the env vars above; app.core.config reads them on import
+from httpx import ASGITransport, AsyncClient  # noqa: E402
 
-from app.core.db import init_db
-from app.main import app
+from app.core.db import init_db  # noqa: E402
+from app.main import app  # noqa: E402
 
 TERMINAL_STATUSES = ("ready", "failed", "cancelled")
 
@@ -89,9 +97,11 @@ async def upload_and_wait_ready(
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _fresh_test_data_dir() -> None:
-    shutil.rmtree("./var/test-data", ignore_errors=True)
-    Path("./var/test-data").mkdir(parents=True, exist_ok=True)
+def _fresh_test_data_dir() -> Generator[None]:
+    # _TEST_DATA_DIR was already created fresh (mkdtemp) when this module was imported, unique
+    # to this process — just clean it up afterward so temp dirs don't pile up across runs.
+    yield
+    shutil.rmtree(_TEST_DATA_DIR, ignore_errors=True)
 
 
 @pytest.fixture(autouse=True)
@@ -103,7 +113,7 @@ async def _db_schema() -> None:
 
 
 @pytest.fixture
-async def client() -> AsyncClient:
+async def client() -> AsyncGenerator[AsyncClient]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
