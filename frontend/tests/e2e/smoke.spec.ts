@@ -4,7 +4,7 @@ import path from 'node:path'
 /** One real walk through every tab, against a real backend — see tests/e2e/README.md.
  * Deliberately a single sequential test (not split per-page) since every later step depends
  * on the document uploaded in the first one; splitting it would mean re-ingesting per test. */
-test('full workspace -> dashboard -> architecture -> graph -> guardrails -> evaluation flow', async ({
+test('full workspace (incl. the embedded advisor panel) -> architecture -> graph -> guardrails -> evaluation flow', async ({
   page,
   request,
 }) => {
@@ -24,9 +24,10 @@ test('full workspace -> dashboard -> architecture -> graph -> guardrails -> eval
   page.on('console', (msg) => {
     if (msg.type() !== 'error') return
     // GET /documents/{id}/advisor legitimately 404s ("no recommendation yet") while the
-    // background enrichment phase hasn't produced one — DashboardPage already handles this
-    // gracefully (shows "No recommendation yet", not a crash), but Chromium still logs the
-    // underlying failed network request to the console regardless of app-level handling.
+    // background enrichment phase hasn't produced one — the Workspace panel's Analyst
+    // section already handles this gracefully (shows "No recommendation yet", not a crash),
+    // but Chromium still logs the underlying failed network request to the console
+    // regardless of app-level handling.
     // This specific race window didn't exist before ingestion became async (see
     // docs/TROUBLESHOOTING.md) — real synchronous completion meant a recommendation always
     // already existed by the time Dashboard could ask for it.
@@ -63,10 +64,12 @@ test('full workspace -> dashboard -> architecture -> graph -> guardrails -> eval
     await expect(page.getByText(/estimated: confidence/i)).toBeVisible({ timeout: 120_000 })
   })
 
-  await test.step('dashboard shows the real advisor comparison and quality gauges', async () => {
-    await page.getByRole('link', { name: 'Dashboard' }).click()
-    await expect(page).toHaveURL(/\/app\/dashboard$/)
-    await expect(page.getByText('Model & Chunking Advisor')).toBeVisible()
+  await test.step('workspace panel shows the real advisor comparison and quality gauges', async () => {
+    // No navigation — the Dashboard tab's content now lives in the Workspace panel itself
+    // (see docs/DECISIONS.md TASK 3/4), already visible from the previous steps.
+    const panel = page.getByTestId('document-intelligence-panel')
+    await expect(panel).toBeVisible()
+    await expect(panel.getByText('Analyst')).toBeVisible()
 
     // Graph/profile/advisor now run as a background enrichment phase *after* the document is
     // ready for chat (see docs/TROUBLESHOOTING.md), and the advisor tournament specifically
@@ -76,14 +79,17 @@ test('full workspace -> dashboard -> architecture -> graph -> guardrails -> eval
     // background run hasn't produced a recommendation yet — explicitly trigger it via the
     // real "Run advisor now" button, which maps to a synchronous POST /advisor/run with a
     // clear request/response contract instead of an open-ended wait.
-    const suggestedMode = page.getByText('Suggested RAG mode:')
-    const runNowButton = page.getByRole('button', { name: /run advisor now/i })
+    const suggestedMode = panel.getByText('Suggested RAG mode:')
+    const runNowButton = panel.getByRole('button', { name: /run advisor now/i })
     await expect(suggestedMode.or(runNowButton)).toBeVisible({ timeout: 20_000 })
     if (await runNowButton.isVisible()) {
       await runNowButton.click()
     }
     await expect(suggestedMode).toBeVisible({ timeout: 180_000 })
-    await expect(page.getByText('Confidence')).toBeVisible()
+    // getByText is substring + case-insensitive by default, so an unscoped 'Confidence' also
+    // matches the chat bubble's "estimated: confidence NN%" badge — scope to the panel, where
+    // the Gauge's own label is the only match.
+    await expect(panel.getByText('Confidence')).toBeVisible()
   })
 
   await test.step('architecture tab connects to the live trace websocket', async () => {

@@ -544,7 +544,7 @@ export function WorkspacePage() {
     </div>
 
       {documentId && doc && (
-        <div className="hidden w-[400px] shrink-0 xl:block">
+        <div className="hidden w-[400px] shrink-0 lg:block">
           <DocumentIntelligencePanel
             doc={doc}
             mode={mode}
