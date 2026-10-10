@@ -89,7 +89,12 @@ test('full workspace -> dashboard -> architecture -> graph -> guardrails -> eval
   await test.step('architecture tab connects to the live trace websocket', async () => {
     await page.getByRole('link', { name: 'Architecture' }).click()
     await expect(page).toHaveURL(/\/app\/architecture$/)
-    await expect(page.getByText('live')).toBeVisible({ timeout: 15_000 })
+    // exact: true — a substring match on 'live' also matches "Upload & Deliver" (the Journey
+    // view's checkpoint 1 label contains "deLIVEr"), so this needs to be unambiguous.
+    await expect(page.getByText('live', { exact: true })).toBeVisible({ timeout: 15_000 })
+    // Journey (the default view) shows 5 macro checkpoints, not all 10 individual stage
+    // names — switch to Detailed for the full real node list this step is actually checking.
+    await page.getByTestId('view-mode-detailed').click()
     await expect(page.getByText('Upload')).toBeVisible()
     await expect(page.getByText('Advisor')).toBeVisible()
   })

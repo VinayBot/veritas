@@ -14,6 +14,7 @@ import { motion, useReducedMotion } from 'framer-motion'
 import { useAppStore } from '@/store/app-store'
 import { useTraceEvents } from '@/hooks/useTraceEvents'
 import { StateMessage } from '@/components/ui/state-message'
+import { JourneyView, type CheckpointDef } from '@/components/architecture/journey-view'
 import {
   Drawer,
   DrawerContent,
@@ -137,10 +138,16 @@ function laneToFlow(
 }
 
 export function ArchitecturePage() {
-  const { documentId, sessionId } = useAppStore()
+  const { documentId, documentName, sessionId } = useAppStore()
   const [source, setSource] = useState<'ingestion' | 'chat'>('ingestion')
+  const [viewMode, setViewMode] = useState<'journey' | 'detailed'>('journey')
   const traceSessionId = source === 'ingestion' ? documentId : sessionId
   const { events, connected } = useTraceEvents(traceSessionId)
+  // The Journey view spans the whole ingest -> query lifecycle (checkpoints 1-3 are
+  // ingestion, 4-5 are chat), so unlike Detailed (which only ever shows one lane) it needs
+  // both event streams at once regardless of which `source` toggle Detailed has selected.
+  const { events: ingestionEventsForJourney } = useTraceEvents(viewMode === 'journey' ? documentId : null)
+  const { events: chatEventsForJourney } = useTraceEvents(viewMode === 'journey' ? sessionId : null)
   const [selected, setSelected] = useState<{ stage: string; event: TraceEvent | null } | null>(
     null,
   )
@@ -149,6 +156,18 @@ export function ArchitecturePage() {
     const lane = source === 'ingestion' ? INGESTION_LANE : CHAT_LANE
     return laneToFlow(lane, events, 0, (stage, event) => setSelected({ stage, event }))
   }, [source, events])
+
+  function selectCheckpoint(cp: CheckpointDef) {
+    const events = cp.source === 'ingestion' ? ingestionEventsForJourney : chatEventsForJourney
+    const latestPerStage = cp.stages
+      .map((stageId) => {
+        const matching = events.filter((e) => e.stage === stageId)
+        return matching[matching.length - 1] ?? null
+      })
+      .filter((e): e is TraceEvent => e !== null)
+    const mostRecent = latestPerStage.sort((a, b) => b.seq - a.seq)[0] ?? null
+    setSelected({ stage: cp.label, event: mostRecent })
+  }
 
   if (!documentId) {
     return (
@@ -174,45 +193,75 @@ export function ArchitecturePage() {
             {connected ? 'live' : 'disconnected'}
           </Badge>
           <div className="flex gap-1 rounded-full bg-surface-raised p-1">
-            {(['ingestion', 'chat'] as const).map((s) => (
+            {(['journey', 'detailed'] as const).map((v) => (
               <button
-                key={s}
-                onClick={() => setSource(s)}
+                key={v}
+                onClick={() => setViewMode(v)}
+                data-testid={`view-mode-${v}`}
                 className={cn(
-                  'rounded-full px-3 py-1 text-xs font-medium transition-colors',
-                  source === s ? 'bg-accent text-on-accent' : 'text-muted-foreground',
+                  'rounded-full px-3 py-1 text-xs font-medium capitalize transition-colors',
+                  viewMode === v ? 'bg-accent text-on-accent' : 'text-muted-foreground',
                 )}
               >
-                {s}
+                {v}
               </button>
             ))}
           </div>
+          {viewMode === 'detailed' && (
+            <div className="flex gap-1 rounded-full bg-surface-raised p-1">
+              {(['ingestion', 'chat'] as const).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setSource(s)}
+                  className={cn(
+                    'rounded-full px-3 py-1 text-xs font-medium transition-colors',
+                    source === s ? 'bg-accent text-on-accent' : 'text-muted-foreground',
+                  )}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </header>
 
-      {source === 'chat' && !sessionId && (
+      {viewMode === 'journey' && (
+        <div className="flex-1">
+          <JourneyView
+            ingestionEvents={ingestionEventsForJourney}
+            chatEvents={chatEventsForJourney}
+            fileLabel={documentName}
+            onSelectCheckpoint={selectCheckpoint}
+          />
+        </div>
+      )}
+
+      {viewMode === 'detailed' && source === 'chat' && !sessionId && (
         <StateMessage
           status="empty"
           description="Send a chat message in Workspace first to see the agentic pipeline run."
         />
       )}
 
-      <div className="flex-1 rounded-lg border border-border bg-surface">
-        <ReactFlowProvider>
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            fitView
-            proOptions={{ hideAttribution: true }}
-            nodesDraggable={false}
-            nodesConnectable={false}
-          >
-            <Background />
-            <FitViewOnChange nodeCount={nodes.length} />
-          </ReactFlow>
-        </ReactFlowProvider>
-      </div>
+      {viewMode === 'detailed' && (
+        <div className="flex-1 rounded-lg border border-border bg-surface">
+          <ReactFlowProvider>
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              fitView
+              proOptions={{ hideAttribution: true }}
+              nodesDraggable={false}
+              nodesConnectable={false}
+            >
+              <Background />
+              <FitViewOnChange nodeCount={nodes.length} />
+            </ReactFlow>
+          </ReactFlowProvider>
+        </div>
+      )}
 
       <Drawer open={selected !== null} onOpenChange={(open) => !open && setSelected(null)}>
         <DrawerContent>

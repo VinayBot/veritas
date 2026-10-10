@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -210,12 +210,21 @@ async def run_chat_turn(
     reveal_pii: bool = False,
     session_id: str | None = None,
     council: bool = False,
+    on_session_started: Callable[[str, bool], Awaitable[None]] | None = None,
 ) -> dict:
     if mode not in VALID_MODES:
         raise ValueError(f"Unknown chat mode: {mode!r}. Valid: {VALID_MODES}")
 
     session_id = session_id or str(uuid.uuid4())
     cached = await semantic_cache.lookup(query, document_id, mode)
+    # Lets the caller (the SSE route) learn session_id/cache_hit the moment they're known —
+    # right after this one cheap cache lookup — instead of only once the whole turn finishes.
+    # Without this, the frontend's Architecture tab can't subscribe to this session's trace
+    # feed until the turn is already over, so a brand-new conversation's first message would
+    # only ever show its pipeline retroactively (a sudden history replay), never live. See
+    # docs/TROUBLESHOOTING.md.
+    if on_session_started is not None:
+        await on_session_started(session_id, cached is not None)
     council_run_id: str | None = None
     routing: dict[str, Any] | None = None
 
