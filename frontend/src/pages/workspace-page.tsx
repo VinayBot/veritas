@@ -20,6 +20,7 @@ import { AlertBanner } from '@/components/ui/alert-banner'
 import { useAppStore } from '@/store/app-store'
 import { useTraceEvents } from '@/hooks/useTraceEvents'
 import { useDocumentStatus } from '@/hooks/useDocumentStatus'
+import { DocumentIntelligencePanel } from '@/components/workspace/document-intelligence-panel'
 import { uploadDocument, retryDocument, cancelDocument, streamChat, ApiError } from '@/lib/api/client'
 import type {
   ChatCitation,
@@ -117,8 +118,15 @@ function stageState(
 }
 
 export function WorkspacePage() {
-  const { documentId, documentName, sessionId, setDocument, setSession, setLastReportId } =
-    useAppStore()
+  const {
+    documentId,
+    documentName,
+    sessionId,
+    lastReportId,
+    setDocument,
+    setSession,
+    setLastReportId,
+  } = useAppStore()
   const [uploading, setUploading] = useState(false)
   const { doc, refresh: refreshDoc } = useDocumentStatus(documentId)
   const { events } = useTraceEvents(documentId)
@@ -299,7 +307,8 @@ export function WorkspacePage() {
   }
 
   return (
-    <div className="mx-auto flex h-screen max-w-5xl flex-col gap-6 p-6">
+    <div className="flex h-screen gap-6 p-6">
+    <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6">
       <header>
         <h1 className="font-display text-2xl font-semibold text-foreground">Workspace</h1>
         <p className="text-sm text-muted-foreground">
@@ -531,6 +540,18 @@ export function WorkspacePage() {
             </div>
           </div>
         </>
+      )}
+    </div>
+
+      {documentId && doc && (
+        <div className="hidden w-[400px] shrink-0 xl:block">
+          <DocumentIntelligencePanel
+            doc={doc}
+            mode={mode}
+            lastReportId={lastReportId}
+            stillIngesting={doc.status !== 'ready'}
+          />
+        </div>
       )}
     </div>
   )
