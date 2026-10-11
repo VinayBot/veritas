@@ -23,6 +23,7 @@ from app.core.db import session_scope
 from app.core.tracing import trace_bus
 from app.graphrag.service import build_graph_for_document
 from app.ingestion.models import Document
+from app.ingestion.parsers.base import ParseError
 from app.ingestion.refiner import refine
 from app.ingestion.registry import parse_file, supported_extensions
 from app.ingestion.scraper import RobotsDisallowedError, ScrapeResult, SsrfBlockedError, scrape_url
@@ -355,6 +356,19 @@ async def _run_pipeline(
                 parsed_text, ocr_confidence = parsed.text, parsed.ocr_confidence
                 h.set_metric("chars", len(parsed_text))
                 h.set_metric("pages", parsed.pages)
+                if not parsed_text.strip():
+                    # Docling's own empty/corrupt/password-protected PDFs already raise
+                    # ParseError from inside parse_file() (docling_parser.py) — but a plain
+                    # text/markdown/csv parser has nothing to fail on and just returns "",
+                    # which previously sailed through refine/chunk/index and landed on
+                    # status="ready" with chunk_count=0: a document that looks successfully
+                    # ingested but can never answer anything, with no error anywhere telling
+                    # the user why. Same ParseError, same "parse" stage, same UX regardless of
+                    # which parser produced the empty result — see docs/TROUBLESHOOTING.md.
+                    raise ParseError(
+                        "This file has no readable text content. It may be empty or contain "
+                        "only whitespace — check the file and try again."
+                    )
 
         chunks = await _run_critical_path(document_id, parsed_text, ocr_confidence)
     except _Cancelled:

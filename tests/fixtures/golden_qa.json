@@ -1,0 +1,155 @@
+{
+  "small_two_page": {
+    "file": "small_two_page.pdf",
+    "description": "Northwind Collective — IT Equipment & Device Security Policy, 2 pages",
+    "qa": [
+      {
+        "question": "How many business days does a standard equipment request take to ship?",
+        "expected_answer": "Four business days."
+      },
+      {
+        "question": "What is the minimum length required for a device password?",
+        "expected_answer": "At least twelve characters."
+      },
+      {
+        "question": "Within how many hours must a lost or stolen device be reported to IT Security?",
+        "expected_answer": "Two hours."
+      },
+      {
+        "question": "Can personal devices be used to access the customer database over VPN?",
+        "expected_answer": "No — personal devices may never access the customer database, regardless of VPN status."
+      },
+      {
+        "question": "Who must approve new software installation on a company laptop?",
+        "expected_answer": "The employee's manager and a security review by IT, unless the software is on the pre-approved list."
+      },
+      {
+        "question": "How many business days do employees have to return equipment after their last day?",
+        "expected_answer": "Five business days."
+      },
+      {
+        "question": "How long is the hardware replacement warranty on company laptops?",
+        "expected_answer": "Three years."
+      },
+      {
+        "question": "Who is the IT Operations Lead responsible for this policy?",
+        "expected_answer": "Marcus Chen."
+      }
+    ]
+  },
+  "long_fifty_pages": {
+    "file": "long_fifty_pages.pdf",
+    "description": "Northwind Collective — Employee Handbook, 61 pages, 15 chapters",
+    "qa": [
+      {
+        "question": "Who is the Chief Executive Officer of Northwind Collective?",
+        "expected_answer": "Renata Okafor."
+      },
+      {
+        "question": "Where is Northwind Collective's headquarters located?",
+        "expected_answer": "Lisbon, Portugal."
+      },
+      {
+        "question": "How many vacation days do employees accrue per month of service?",
+        "expected_answer": "Two paid vacation days per month, up to a maximum of twenty-four days per year."
+      },
+      {
+        "question": "How many weeks of paid parental leave does a primary caregiver receive?",
+        "expected_answer": "Sixteen weeks paid."
+      },
+      {
+        "question": "What percentage of the health insurance premium does the company contribute for the employee?",
+        "expected_answer": "Eighty-five percent."
+      },
+      {
+        "question": "How often does each office location run a fire drill?",
+        "expected_answer": "At least twice per year.",
+        "note": "Fact is in Chapter 15, near the end of the document — tests long-document retrieval, not just early-page recall."
+      },
+      {
+        "question": "Within how many hours must a lost or stolen device be reported to IT Security?",
+        "expected_answer": "Two hours.",
+        "note": "Fact is in Chapter 9 (middle of the document)."
+      },
+      {
+        "question": "What is the referral bonus for a successful technical hire?",
+        "expected_answer": "Two thousand dollars."
+      },
+      {
+        "question": "How many hours of continuous flight time now trigger the business-class travel threshold?",
+        "expected_answer": "Ten hours (raised from eight in the most recent policy review).",
+        "note": "Fact is in Chapter 10."
+      },
+      {
+        "question": "Who conducts exit interviews?",
+        "expected_answer": "HR conducts exit interviews — never the departing employee's direct manager.",
+        "note": "Fact is in Chapter 14, near the end of the document — tests long-document retrieval."
+      }
+    ]
+  },
+  "sample_docx": {
+    "file": "sample.docx",
+    "description": "Northwind Collective — Expense Reimbursement Policy, DOCX",
+    "qa": [
+      {
+        "question": "Within how many days must expense reports be submitted?",
+        "expected_answer": "Twenty-one days of the purchase date."
+      },
+      {
+        "question": "What is the receipt requirement threshold for a single expense?",
+        "expected_answer": "A receipt is required for any single expense over fifteen dollars; meal expenses always require a receipt regardless of amount."
+      },
+      {
+        "question": "Who approves expense reports under two hundred dollars?",
+        "expected_answer": "The employee's direct manager alone."
+      },
+      {
+        "question": "How many business days does reimbursement take after approval?",
+        "expected_answer": "Seven business days, or up to fourteen business days if flagged for additional review."
+      },
+      {
+        "question": "Is alcohol reimbursable under this policy, even during approved business travel?",
+        "expected_answer": "No, alcohol is never reimbursable, even during approved business travel."
+      },
+      {
+        "question": "What happens on a second instance of personal corporate card use within twelve months?",
+        "expected_answer": "The corporate card is revoked."
+      },
+      {
+        "question": "Who is the Finance Operations Manager and policy owner?",
+        "expected_answer": "Fatima Al-Rashid."
+      }
+    ]
+  },
+  "non_english": {
+    "file": "non_english.pdf",
+    "description": "Northwind Collective — Politique de Congés Payés (French), 1-2 pages",
+    "language": "fr",
+    "qa": [
+      {
+        "question": "Combien de jours de congés les employés accumulent-ils par mois de service ?",
+        "expected_answer": "Deux jours par mois, jusqu'à vingt-quatre jours par an."
+      },
+      {
+        "question": "Combien de jours de congés non utilisés peuvent être reportés à l'année suivante ?",
+        "expected_answer": "Un maximum de dix jours."
+      },
+      {
+        "question": "Combien de semaines de congé payé le parent principal reçoit-il ?",
+        "expected_answer": "Seize semaines de congé payé."
+      },
+      {
+        "question": "Combien de jours de congé maladie payé les employés reçoivent-ils par an ?",
+        "expected_answer": "Dix jours, non cumulables d'une année à l'autre."
+      },
+      {
+        "question": "Qui est la responsable des Ressources Humaines ?",
+        "expected_answer": "Camille Dubois."
+      },
+      {
+        "question": "Combien de temps à l'avance une demande de congé de plus de trois jours doit-elle être soumise ?",
+        "expected_answer": "Au moins deux semaines à l'avance."
+      }
+    ]
+  }
+}

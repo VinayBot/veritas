@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import threading
 
 import pytest
 from conftest import wait_for_document, wait_for_enrichment
@@ -149,6 +150,25 @@ async def test_upload_corrupt_pdf_fails_clearly_not_hangs(client: AsyncClient) -
     assert "could not load document" not in doc["error_message"]
 
 
+async def test_upload_empty_text_file_fails_clearly_instead_of_a_silent_unusable_ready(
+    client: AsyncClient,
+) -> None:
+    """Reproduced live: a 0-byte .txt uploaded through the real API previously ended up
+    status="ready", chunk_count=0 — no error anywhere, despite the document being unable to
+    answer any question. Docling's own empty-PDF case already fails clearly (ParseError from
+    docling_parser.py); a plain text/markdown/csv parser has nothing to fail on and just
+    returns "", which has to be caught explicitly. See docs/TROUBLESHOOTING.md."""
+    files = {"file": ("empty.txt", b"", "text/plain")}
+    upload = await client.post("/api/v1/documents/upload", files=files)
+    document_id = upload.json()["document_id"]
+
+    doc = await wait_for_document(client, document_id, timeout=30.0)
+    assert doc["status"] == "failed"
+    assert doc["error_stage"] == "parse"
+    assert doc["error_message"]
+    assert doc["chunk_count"] is None
+
+
 async def test_upload_password_protected_pdf_fails_clearly_not_hangs(client: AsyncClient) -> None:
     files = {"file": ("protected.pdf", _password_protected_pdf_bytes(), "application/pdf")}
     upload = await client.post("/api/v1/documents/upload", files=files)
@@ -161,13 +181,38 @@ async def test_upload_password_protected_pdf_fails_clearly_not_hangs(client: Asy
     assert "could not load document" not in doc["error_message"]
 
 
-async def test_cancel_during_queued_marks_cancelled_not_failed(client: AsyncClient) -> None:
+async def test_cancel_during_queued_marks_cancelled_not_failed(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reproduced as a genuine, intermittent flake (not a one-off), and a fixed sleep delay
+    (tried first) wasn't reliable either — a .txt file's entire critical path (refine ->
+    pii_vault -> chunk_embed_index) is fast enough with warm models, and the margin by which
+    the real race was won or lost varied enough under load that no fixed duration was safe.
+    Cancellation is only checked at a stage *boundary* (_mark_stage_running), and the final
+    "mark ready" write at the end of _run_critical_path has no such check, so a cancellation
+    that arrives after the last boundary but before that final write is silently too late.
+    A real threading.Event removes the timing dependency entirely instead of hoping a sleep
+    duration is long enough: refine blocks until the test has confirmed (via the cancel
+    request's own 200 response, which only arrives once cancel_ingestion()'s write has
+    actually completed) that the cancellation has already landed, before letting the
+    pipeline continue into the next stage boundary that needs to observe it."""
+    cancel_landed = threading.Event()
+    real_refine = service.refine
+
+    def _blocked_refine(*args: object, **kwargs: object):
+        if not cancel_landed.wait(timeout=10):
+            raise TimeoutError("test's cancel request never landed")
+        return real_refine(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(service, "refine", _blocked_refine)
+
     files = {"file": ("notes.txt", b"Some ordinary document content.", "text/plain")}
     upload = await client.post("/api/v1/documents/upload", files=files)
     document_id = upload.json()["document_id"]
 
     cancel_resp = await client.post(f"/api/v1/documents/{document_id}/cancel")
     assert cancel_resp.status_code == 200
+    cancel_landed.set()  # cancel_ingestion()'s write is now durably committed — safe to proceed
 
     # Cancellation is cooperative (checked at the next stage boundary, see
     # cancel_ingestion()'s docstring) — give the in-flight task a moment to observe it.

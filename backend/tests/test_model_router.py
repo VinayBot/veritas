@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
 from app.core.config import get_settings
+from app.llm.client import LlmUnavailableError
 from app.llm.router import complete_with_latency_budget, select_primary_model
 
 
@@ -75,3 +78,46 @@ async def test_complete_with_latency_budget_falls_back_when_primary_is_unavailab
     assert result.fell_back is True
     assert result.model_used == settings.default_llm_model
     assert result.answer
+
+
+async def test_complete_with_latency_budget_falls_back_when_primary_exceeds_the_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other fallback test above forces an immediate connection error (a bogus model name)
+    — that exercises LlmUnavailableError's exception-handling branch but never the
+    *timeout* branch itself (primary model slow-but-eventually-responding, exceeding
+    budget_s). A real Ollama call against a 1ms budget reliably exceeds it, no mocking needed.
+    Needs a *complex* query, not a simple one: a simple query routes primary == fallback ==
+    default_llm_model, which is the other (raise, no distinct fallback to try) branch — this
+    one specifically needs primary and fallback to differ, so a real fallback happens."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "model_router_latency_budget_ms", 1)
+    complex_query = (
+        "Compare the vacation policy and the remote work policy — what's the difference "
+        "between them?"
+    )
+    primary = select_primary_model(complex_query)
+    assert primary != settings.default_llm_model
+
+    result = await complete_with_latency_budget(
+        "Reply with the single word: hello", query_for_routing=complex_query, max_tokens=10
+    )
+    assert result.primary_model == primary
+    assert result.fell_back is True
+    assert result.model_used == settings.default_llm_model
+    assert result.answer
+
+
+async def test_complete_with_latency_budget_raises_when_fallback_equals_the_failed_primary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = get_settings()
+    bogus_model = "ollama/this-model-does-not-exist:1b"
+    monkeypatch.setattr(settings, "default_llm_model", bogus_model)
+    simple_query = "What is the vacation policy?"
+    assert select_primary_model(simple_query) == bogus_model
+
+    with pytest.raises(LlmUnavailableError):
+        await complete_with_latency_budget(
+            "Answer briefly.", query_for_routing=simple_query, max_tokens=20
+        )

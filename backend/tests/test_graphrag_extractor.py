@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.graphrag.extractor import extract_entities, extract_triples_llm
+from app.graphrag.extractor import _parse_triples, extract_entities, extract_triples_llm
 
 
 def test_extract_entities_finds_people_and_orgs() -> None:
@@ -32,6 +32,54 @@ def test_extract_entities_recognizes_a_masked_pii_token() -> None:
     assert len(pii_matches) == 1
     assert pii_matches[0].label == "PERSON"
     assert any(e.text == "Germany" for e in entities)
+
+
+def test_parse_triples_accepts_a_clean_json_array() -> None:
+    raw = '[{"subject": "Marie Curie", "predicate": "discovered", "object": "radium"}]'
+    triples = _parse_triples(raw)
+    assert len(triples) == 1
+    assert triples[0].subject == "Marie Curie"
+    assert triples[0].predicate == "discovered"
+    assert triples[0].object == "radium"
+
+
+def test_parse_triples_extracts_json_wrapped_in_prose_and_markdown_fences() -> None:
+    raw = (
+        "Sure, here are the triples:\n```json\n"
+        '[{"subject": "A", "predicate": "relates to", "object": "B"}]\n'
+        "```\nLet me know if you need more."
+    )
+    triples = _parse_triples(raw)
+    assert len(triples) == 1
+    assert triples[0].subject == "A"
+
+
+def test_parse_triples_skips_items_missing_a_required_key() -> None:
+    raw = (
+        '[{"subject": "A", "predicate": "relates to", "object": "B"}, '
+        '{"subject": "C", "predicate": "missing object"}]'
+    )
+    triples = _parse_triples(raw)
+    assert len(triples) == 1
+    assert triples[0].subject == "A"
+
+
+def test_parse_triples_skips_non_dict_items() -> None:
+    raw = '["just a string", 42, {"subject": "A", "predicate": "relates to", "object": "B"}]'
+    triples = _parse_triples(raw)
+    assert len(triples) == 1
+
+
+def test_parse_triples_returns_empty_for_a_non_list_json_value() -> None:
+    assert _parse_triples('{"not": "a list"}') == []
+
+
+def test_parse_triples_returns_empty_for_unparseable_garbage() -> None:
+    assert _parse_triples("not json at all, just prose with no brackets") == []
+
+
+def test_parse_triples_returns_empty_for_an_empty_array() -> None:
+    assert _parse_triples("[]") == []
 
 
 async def test_extract_triples_llm_real_call() -> None:

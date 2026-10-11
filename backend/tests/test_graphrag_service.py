@@ -14,6 +14,11 @@ def _chunk(doc_id: str, text: str) -> Chunk:
 
 
 async def test_build_graph_for_document_creates_entities_and_relation() -> None:
+    """Despite its name, this previously only ever asserted on entity count — stats["triples"]
+    and the actual edges were never checked, so a regression that broke relation extraction/
+    linking entirely (e.g. the Bug G-style exact-match linking failure in build_graph_for_
+    document) would have passed this test silently. Confirmed live and deterministic
+    (temperature=0.0, identical across 3 runs) before asserting on it strictly."""
     doc_id = f"doc-{uuid.uuid4()}"
     chunks = [
         _chunk(
@@ -23,11 +28,16 @@ async def test_build_graph_for_document_creates_entities_and_relation() -> None:
     ]
     stats = await build_graph_for_document(doc_id, chunks)
     assert stats["entities"] >= 2
+    assert stats["triples"] >= 1
 
     store = get_graph_store()
     data = store.to_json(doc_id=doc_id)
     names = {n["name"] for n in data["nodes"]}
     assert any("Zephyrion" in n or "Voss" in n or "Haven" in n for n in names)
+    assert len(data["edges"]) >= 1
+    name_by_id = {n["id"]: n["name"] for n in data["nodes"]}
+    edge_pairs = {(name_by_id.get(e["source"]), name_by_id.get(e["target"])) for e in data["edges"]}
+    assert ("Zephyrion Dynamics", "Lyra Voss") in edge_pairs
 
 
 async def test_build_graph_creates_a_node_for_a_masked_pii_token() -> None:
@@ -54,6 +64,49 @@ async def test_build_graph_creates_a_node_for_a_masked_pii_token() -> None:
     names = {n["name"] for n in data["nodes"]}
     assert "<PERSON_6cc6eb>" in names
     assert "Germany" in names
+
+
+async def test_community_detection_separates_two_unrelated_document_topics() -> None:
+    """detect_communities() runs Louvain over one shared cross-document graph (service.py:48),
+    not scoped per document — the existing low-level test
+    (test_graph_store.py::test_detect_communities_groups_connected_components) only exercises
+    the algorithm directly on a hand-built, isolated store. Nothing exercised it via the real
+    pipeline (extraction -> linking -> build_graph_for_document) at anything past a trivial
+    scale, which is exactly where the real behavior (observed live: ~330 communities, mostly
+    singletons, on the actual accumulated dev graph) diverges from the simple hand-built case.
+    This proves the real pipeline, given two genuinely unrelated topics, still separates them
+    rather than merging everything into one blob — asserted relatively (cluster 1's entities
+    land in a different community than cluster 2's), not as an absolute community count, since
+    the shared store may carry state from whatever else has run in this process."""
+    doc_id_1 = f"doc-{uuid.uuid4()}"
+    doc_id_2 = f"doc-{uuid.uuid4()}"
+    chunks_1 = [
+        _chunk(doc_id_1, "Zephyrion Dynamics was founded by Lyra Voss in the city of Nova Haven.")
+    ]
+    chunks_2 = [
+        _chunk(
+            doc_id_2, "Thornwick Bakery was acquired by Petra Mallory in the town of Ashford Vale."
+        )
+    ]
+    await build_graph_for_document(doc_id_1, chunks_1)
+    await build_graph_for_document(doc_id_2, chunks_2)
+
+    store = get_graph_store()
+    assignment = store.detect_communities()
+
+    data_1 = store.to_json(doc_id=doc_id_1)
+    data_2 = store.to_json(doc_id=doc_id_2)
+    ids_1 = {n["id"] for n in data_1["nodes"]}
+    ids_2 = {n["id"] for n in data_2["nodes"]}
+    assert ids_1 and ids_2
+
+    communities_1 = {assignment[i] for i in ids_1 if i in assignment}
+    communities_2 = {assignment[i] for i in ids_2 if i in assignment}
+    assert communities_1, "cluster 1's entities got no community assignment at all"
+    assert communities_2, "cluster 2's entities got no community assignment at all"
+    assert communities_1.isdisjoint(communities_2), (
+        f"two unrelated topics landed in the same community: {communities_1} & {communities_2}"
+    )
 
 
 async def test_build_graph_skips_chunks_with_too_few_entities() -> None:
