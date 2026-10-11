@@ -31,6 +31,10 @@ class AgentState(TypedDict, total=False):
     council: bool
     council_run_id: str | None
     routing: dict[str, Any] | None
+    # Set only on the automatic retry-after-timeout attempt (Fix 1): forces the fast default
+    # model (no council, no router escalation) and a tighter critic-retry cap, so the retry is
+    # actually faster than the attempt that just timed out, not a second shot at the same cost.
+    force_fast: bool
 
     category: str
     sub_questions: list[str]
@@ -62,6 +66,7 @@ def initial_state(
     document_id: str | None,
     reveal_pii: bool = False,
     council: bool = False,
+    force_fast: bool = False,
 ) -> AgentState:
     return AgentState(
         session_id=session_id,
@@ -71,6 +76,7 @@ def initial_state(
         council=council,
         council_run_id=None,
         routing=None,
+        force_fast=force_fast,
         sub_questions=[],
         tools=[],
         retrieved=[],

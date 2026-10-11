@@ -1182,3 +1182,40 @@ not stubbed, so the tab came out. Decisions:
   this increment — it's a different, much larger architectural problem (serializing GPU-bound
   model calls) — but it's real and documented rather than silently worked around by only ever
   running tests in a way that happens to avoid it.
+
+## Fix Round 3 — Chat reliability, Models tab, theme/tab cleanup, Evaluation galaxy graph, Architecture rebuild (in progress)
+
+New multi-section brief landed covering: Fix 1 (chat hang + chat vanishes on tab switch), a new Models tab, tab removal + dark theme pass, an Evaluation dashboard overhaul with a galaxy knowledge graph, an Architecture tab rebuilt referencing an external MIT-licensed repo (VinayBot/structai), and a deep E2E verification loop. Working the brief's strict phase order (commit after each), logging decisions here per that brief's rule 1 rather than asking.
+
+- **Fix 1 regression fixture generated.** `backend/scripts/generate_demo_pdf.py` (reportlab,
+  added to the `dev` dependency group — it's a fixture generator, not a runtime dependency)
+  produces `data/demo/chatbot_information.pdf`: 8 pages, with the required one table (chatbot
+  types) and one timeline (a `reportlab.graphics` drawing of the 8 history milestones), covering
+  exactly what the brief's golden questions probe: ELIZA (1966, Weizenbaum, MIT), PARRY (1972,
+  Colby, Stanford), A.L.I.C.E. (1995, Wallace), SmarterChild (2001), Siri (2011), Alexa (2014),
+  Tay (2016, shut down within ~24h), ChatGPT (November 2022), the four chatbot types, and the
+  NLU/Dialog-Manager/NLG architecture split. Verified by extracting real text per page with
+  `pypdf` (already a dev dependency) rather than trusting that `doc.build()` not raising means
+  the content landed where intended.
+- **Chosen unanswerable golden question**: "What is the monthly subscription price of ChatGPT
+  Plus?" — a plausible chatbot-adjacent question that this document (deliberately historical/
+  architectural, not commercial) never covers, so a correct system should abstain rather than
+  answer from the model's own parametric knowledge.
+- **Strong leads on Fix 1 found by re-reading this file's own history, before touching any
+  code.** (a) Phase 6's entry above already documents that SSE only streams *after* the full
+  agentic turn completes, with no overall cap on planner/critic/retry fan-out; Phase 9 separately
+  measured a single factoid question at ~29.6s p95 agentic latency on this same 16GB-tier
+  hardware — a broad summarization-style question ("history of chatbot") multiplying that
+  fan-out further, with zero timeout anywhere, is functionally indistinguishable from a true
+  hang. (b) The Phase 10-12 entry above already found and logged, unfixed, that
+  `WorkspacePage`'s chat `messages` state is local `useState`, not in the Zustand `app-store` —
+  exactly this brief's "chat vanishes on tab switch" symptom, with the fix location already
+  known. A background investigation (parallel reads of the chat API, agent graph, LLM/embedding
+  call sites, SSE/proxy config, and frontend chat state) is confirming current exact line-level
+  detail before any code changes, per rule 4 (root cause with evidence, not a guess) — findings
+  and the actual fix land in the next entry.
+- **Backend (`:8000`) and frontend (`:5173`) dev servers were already running** from a prior
+  session (confirmed via `lsof`, real PIDs, not assumed) — reused rather than restarted, so any
+  live reproduction below hits the same process a browser would. Ollama already has all four
+  required models pulled (`gemma2:2b`, `llama-guard3:1b`, `llama3.2:3b`,
+  `qwen2.5:7b-instruct`) — confirmed via `ollama list`, not assumed from the README.

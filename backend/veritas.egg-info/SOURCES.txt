@@ -29,6 +29,7 @@ app/api/routes/profiler.py
 app/api/routes/redteam.py
 app/api/routes/reports.py
 app/api/routes/retrieval.py
+app/api/routes/test_center.py
 app/api/routes/trace.py
 app/api/schemas/__init__.py
 app/api/schemas/audit.py
@@ -41,6 +42,7 @@ app/api/schemas/pii.py
 app/api/schemas/profiler.py
 app/api/schemas/redteam.py
 app/api/schemas/retrieval.py
+app/api/schemas/test_center.py
 app/chunking/__init__.py
 app/chunking/base.py
 app/chunking/models.py
@@ -173,6 +175,7 @@ tests/test_guardrails_retrieval.py
 tests/test_health.py
 tests/test_hybrid_retrieval.py
 tests/test_hyde.py
+tests/test_ingestion_service.py
 tests/test_model_router.py
 tests/test_pii.py
 tests/test_profiler_api.py

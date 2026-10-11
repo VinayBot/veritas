@@ -116,6 +116,53 @@ async def check_ollama() -> str:
     return f"reachable, {len(models)} model(s): {', '.join(models)}"
 
 
+async def warm_ollama_models() -> str:
+    """Fix 1 (see docs/DECISIONS.md): `check_ollama` above only lists installed models via
+    `/api/tags` — it never calls `/api/generate`/`/api/chat`, so it never actually loads a
+    model's weights into memory, unlike the embedder/reranker, which genuinely do get warmed at
+    startup. The first *real* chat turn therefore pays Ollama's full cold-load latency with zero
+    progress feedback. This makes one tiny real generate call per distinct configured model with
+    `keep_alive` set, so weights are already resident by the time a user's first question
+    arrives, and stay resident for `OLLAMA_KEEP_ALIVE` afterward.
+    """
+    settings = get_settings()
+    if settings.llm_provider != "ollama":
+        return "skipped — LLM_PROVIDER is not ollama"
+
+    configured = [
+        settings.default_llm_model,
+        settings.chairman_model,
+        settings.guard_model,
+        *settings.council_model_list,
+    ]
+    models = sorted({m.removeprefix("ollama/") for m in configured if m.startswith("ollama/")})
+    if not models:
+        return "no ollama/-prefixed models configured"
+
+    warmed: list[str] = []
+    async with httpx.AsyncClient(timeout=90.0) as client:
+        for name in models:
+            try:
+                resp = await client.post(
+                    f"{settings.ollama_base_url}/api/generate",
+                    json={
+                        "model": name,
+                        "prompt": "Hi",
+                        "stream": False,
+                        "keep_alive": settings.ollama_keep_alive,
+                    },
+                )
+                resp.raise_for_status()
+                warmed.append(name)
+            except httpx.HTTPError as exc:
+                logger.warning("Failed to warm Ollama model %r: %s", name, exc)
+
+    return (
+        f"warmed {len(warmed)}/{len(models)} model(s) (keep_alive={settings.ollama_keep_alive}): "
+        f"{', '.join(warmed) or 'none'}"
+    )
+
+
 def check_vector_store_write() -> str:
     import numpy as np
 
@@ -148,6 +195,7 @@ async def run_preflight() -> PreflightReport:
         timed_check("docling_parser", _warm_docling),
         timed_check("reranker", _warm_reranker),
         timed_check("ollama", check_ollama),
+        timed_check("ollama_models", warm_ollama_models),
         timed_check("vector_store", check_vector_store_write),
     )
     report = PreflightReport(checks=list(results), ran_at=time.time())

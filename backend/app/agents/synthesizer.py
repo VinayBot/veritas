@@ -43,7 +43,10 @@ async def synthesizer_node(state: AgentState) -> dict:
     async with trace_bus.stage(
         state["session_id"], "synthesizer", from_stage="critic", to_stage="verifier"
     ) as h:
-        if state.get("council"):
+        # force_fast (the post-timeout retry — see docs/DECISIONS.md) always skips council: a
+        # multi-model ensemble is the single most expensive thing this node can do, and the
+        # whole point of this attempt is to be fast.
+        if state.get("council") and not state.get("force_fast"):
             # Revisions still go through the full council, with the verifier's specific
             # complaint folded into the question so every member sees it — see docs/DECISIONS.md
             # on why council mode doesn't fall back to a single model on retry.
@@ -79,10 +82,16 @@ async def synthesizer_node(state: AgentState) -> dict:
                 # correct, now-fully-supported answer — reproducible 2/2, while the stronger
                 # council model kept the citation and dropped the hedge both times. A revision
                 # is always a correction task, regardless of how simple the original query is.
+                # force_fast overrides this: it specifically wants the fast default model even
+                # on a revision pass, since it only exists to recover quickly from a timeout.
                 force_model = (
-                    (settings.council_model_list[0] if settings.council_model_list else None)
-                    if is_revision
-                    else None
+                    settings.default_llm_model
+                    if state.get("force_fast")
+                    else (
+                        (settings.council_model_list[0] if settings.council_model_list else None)
+                        if is_revision
+                        else None
+                    )
                 )
                 routed = await complete_with_latency_budget(
                     prompt,

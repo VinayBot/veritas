@@ -9,9 +9,14 @@ Two loops back:
 - verifier, when it finds unsupported claims and under the revision cap, loops back to
   synthesizer for one corrected attempt.
 
-Two early exits, both straight to guardian_out (no point running the rest of the pipeline):
-- guardian_in blocks the input (rate limit / encoding / injection / unsafe content).
-- the Planner classifies the query as out_of_scope.
+Three early branches off the Planner, all skipping the rewriter<->critic loop entirely:
+- guardian_in blocks the input (rate limit / encoding / injection / unsafe content) ->
+  straight to guardian_out.
+- the Planner classifies the query as out_of_scope -> decline -> guardian_out.
+- the Planner classifies the query as "summary" (a broad, document-wide question like
+  "history of X") -> summarizer, which does its own wide/diverse retrieval and map-reduce
+  synthesis instead of a narrow top-k lookup, then straight to verifier (see summarizer.py and
+  docs/DECISIONS.md's Fix 1 entry for why the critic loop is the wrong tool for this category).
 """
 
 from __future__ import annotations
@@ -26,6 +31,7 @@ from app.agents.planner import decline_node, planner_node, route_after_planner
 from app.agents.retriever import retriever_node
 from app.agents.rewriter import rewriter_node
 from app.agents.state import AgentState
+from app.agents.summarizer import summarizer_node
 from app.agents.synthesizer import synthesizer_node
 from app.agents.verifier import route_after_verifier, verifier_node
 
@@ -38,6 +44,7 @@ def build_agent_graph():
     graph.add_node("rewriter", rewriter_node)
     graph.add_node("retriever", retriever_node)
     graph.add_node("critic", critic_node)
+    graph.add_node("summarizer", summarizer_node)
     graph.add_node("synthesizer", synthesizer_node)
     graph.add_node("verifier", verifier_node)
     graph.add_node("guardian_out", guardian_out_node)
@@ -47,9 +54,12 @@ def build_agent_graph():
         "guardian_in", route_after_guardian_in, {"blocked": "guardian_out", "continue": "planner"}
     )
     graph.add_conditional_edges(
-        "planner", route_after_planner, {"out_of_scope": "decline", "continue": "rewriter"}
+        "planner",
+        route_after_planner,
+        {"out_of_scope": "decline", "summarize": "summarizer", "continue": "rewriter"},
     )
     graph.add_edge("decline", "guardian_out")
+    graph.add_edge("summarizer", "verifier")
     graph.add_edge("rewriter", "retriever")
     graph.add_edge("retriever", "critic")
     graph.add_conditional_edges(

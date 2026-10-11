@@ -87,7 +87,15 @@ async def verifier_node(state: AgentState) -> dict:
             # (council_models[0]) for this specific judgment call, which got it right in the
             # same live comparison. The Synthesizer's own answer generation is unaffected and
             # keeps using the fast complexity-based router.
-            grading_model = settings.council_model_list[0] if settings.council_model_list else None
+            # force_fast (the post-timeout retry — see docs/DECISIONS.md) overrides this to the
+            # fast default model regardless: a live timed run measured this stronger model's
+            # calls at ~20-30s each on this project's own 16GB-tier hardware, which is exactly
+            # the cost the retry exists to avoid repeating.
+            grading_model = (
+                settings.default_llm_model
+                if state.get("force_fast")
+                else (settings.council_model_list[0] if settings.council_model_list else None)
+            )
             raw = await complete(
                 _VERIFY_PROMPT.format(context=context, answer=answer),
                 model=grading_model,

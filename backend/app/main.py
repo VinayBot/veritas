@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.agents.runs import reconcile_interrupted_runs
 from app.api.routes.audit import router as audit_router
 from app.api.routes.chat import router as chat_router
 from app.api.routes.council import router as council_router
@@ -23,6 +24,7 @@ from app.api.routes.profiler import router as profiler_router
 from app.api.routes.redteam import router as redteam_router
 from app.api.routes.reports import router as reports_router
 from app.api.routes.retrieval import router as retrieval_router
+from app.api.routes.runs import router as runs_router
 from app.api.routes.test_center import router as test_center_router
 from app.api.routes.trace import router as trace_router
 from app.core.config import get_settings
@@ -50,6 +52,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "Marked %d document(s) 'failed' — they were queued/running when the backend last "
             "stopped and have no process left to finish them. Re-upload to retry.",
             reconciled,
+        )
+
+    reconciled_runs = await reconcile_interrupted_runs()
+    if reconciled_runs:
+        logger.warning(
+            "Marked %d chat run(s) 'failed' — they were in progress when the backend last "
+            "stopped and have no process left to finish them.",
+            reconciled_runs,
         )
 
     # Deliberately NOT awaited: preflight can take minutes on a cold model cache (see
@@ -89,6 +99,7 @@ app.include_router(pii_router, prefix="/api/v1")
 app.include_router(retrieval_router, prefix="/api/v1")
 app.include_router(graph_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
+app.include_router(runs_router, prefix="/api/v1")
 app.include_router(reports_router, prefix="/api/v1")
 app.include_router(audit_router, prefix="/api/v1")
 app.include_router(redteam_router, prefix="/api/v1")

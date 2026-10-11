@@ -92,6 +92,16 @@ class Settings(BaseSettings):
     # --- Guardrails / rate limiting ---
     rate_limit_per_minute: int = Field(default=60, alias="RATE_LIMIT_PER_MINUTE")
 
+    # --- Chat run reliability (Fix 1) ---
+    # 150s/60s (this project's own suggested starting point) measured too tight on live local
+    # hardware: a real timed run on this 16GB-tier machine found individual local-model calls
+    # costing ~15-30s each, and a full agentic+summarizer chain needs 6-10+ of them even on the
+    # happy path — see docs/DECISIONS.md for the real numbers these were raised against.
+    run_timeout_seconds: float = Field(default=240.0, alias="RUN_TIMEOUT_SECONDS")
+    run_retry_timeout_seconds: float = Field(default=90.0, alias="RUN_RETRY_TIMEOUT_SECONDS")
+    max_llm_calls_per_run: int = Field(default=14, alias="MAX_LLM_CALLS_PER_RUN")
+    ollama_keep_alive: str = Field(default="30m", alias="OLLAMA_KEEP_ALIVE")
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

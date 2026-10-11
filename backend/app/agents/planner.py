@@ -18,10 +18,15 @@ ALL_TOOLS = ("hybrid_search", "graph_traverse", "pii_vault_lookup", "metadata_fi
 
 _PLANNER_PROMPT = """Classify this question and decide how to answer it. Return ONLY a JSON \
 object, no other text, no markdown fences, with exactly these keys:
-- "category": one of {categories}
+- "category": one of {categories}. Use "summary" for any broad question that asks for an \
+overview, history, or general account spanning the whole document (e.g. "history of X", \
+"tell me about X", "what is X") rather than one specific fact — these need wide, diverse \
+retrieval across the document, not a single targeted lookup, and route differently.
 - "sub_questions": a JSON array of 1-4 short, self-contained sub-questions. For a simple \
 question, this is just the question itself as the only element. For a multi-hop or comparison \
-question, break it into the separate facts that need to be looked up.
+question, break it into the separate facts that need to be looked up. For "summary", this is \
+also just the question itself — breaking a broad question into narrow sub-questions defeats \
+the point of asking for wide coverage.
 - "tools": a JSON array chosen from {tools} — always include "hybrid_search" unless the \
 question is purely about contact-lookup PII (then use "pii_vault_lookup"); add "graph_traverse" \
 if answering requires connecting multiple entities/relationships.
@@ -36,7 +41,18 @@ def _heuristic_fallback(query: str) -> dict:
     category = "factoid"
     if any(w in lowered for w in ("compare", "versus", " vs ", "difference between")):
         category = "comparison"
-    elif any(w in lowered for w in ("summarize", "summary", "overview")):
+    elif any(
+        w in lowered
+        for w in (
+            "summarize",
+            "summary",
+            "overview",
+            "history of",
+            "tell me about",
+            "what is the history",
+            "background on",
+        )
+    ):
         category = "summary"
     elif any(w in lowered for w in ("email of", "phone number of", "who owns", "contact for")):
         category = "pii_lookup"
@@ -85,7 +101,12 @@ async def planner_node(state: AgentState) -> dict:
 
 
 def route_after_planner(state: AgentState) -> str:
-    return "out_of_scope" if state.get("category") == "out_of_scope" else "continue"
+    category = state.get("category")
+    if category == "out_of_scope":
+        return "out_of_scope"
+    if category == "summary":
+        return "summarize"
+    return "continue"
 
 
 async def decline_node(state: AgentState) -> dict:

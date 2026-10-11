@@ -10,6 +10,7 @@ process; documented as a known scaling placeholder rather than quietly ignored.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -45,7 +46,9 @@ def _scope_matches(entry: CacheEntry, doc_id: str | None, mode: str) -> bool:
 async def lookup(query: str, doc_id: str | None, mode: str) -> CacheEntry | None:
     if not get_settings().semantic_cache_enabled or not _cache:
         return None
-    query_emb = get_embedder().embed_one(query)
+    # Synchronous local-model inference — see docs/DECISIONS.md's Fix 1 entry on why this must
+    # not run unwrapped on the shared event loop (this runs on every single chat turn).
+    query_emb = await asyncio.to_thread(get_embedder().embed_one, query)
     best: CacheEntry | None = None
     best_sim = -1.0
     for entry in _cache:
@@ -62,7 +65,7 @@ async def store(
 ) -> None:
     if not get_settings().semantic_cache_enabled:
         return
-    query_emb = get_embedder().embed_one(query)
+    query_emb = await asyncio.to_thread(get_embedder().embed_one, query)
     _cache.append(
         CacheEntry(
             query=query,

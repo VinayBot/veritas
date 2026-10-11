@@ -25,14 +25,19 @@ _GRADE_PROMPT = (
 )
 
 
-async def _llm_grade(query: str, hits: Sequence[Mapping[str, Any]]) -> bool:
+async def _llm_grade(
+    query: str, hits: Sequence[Mapping[str, Any]], force_fast: bool = False
+) -> bool:
     """Reproduced live (see docs/TROUBLESHOOTING.md): rewording the reply tokens to
     ANSWERABLE/UNANSWERABLE wasn't enough on its own — DEFAULT_LLM_MODEL (llama3.2:3b) still
     answered the *object-level* question ('no, not without approval') instead of judging
     answerability, for every question whose real answer is restrictive or negative, regardless
     of retrieval quality. qwen2.5:7b-instruct (already the system's designated stronger model —
     see select_primary_model) got every case right in the same live comparison, so this one
-    judgment call is worth its extra latency over the default."""
+    judgment call is worth its extra latency over the default — except on force_fast (the
+    post-timeout retry, see docs/DECISIONS.md), which deliberately accepts the weaker signal in
+    exchange for the ~20-30s/call this stronger model measured on this project's own 16GB-tier
+    hardware, exactly the cost that attempt exists to avoid."""
     if not hits:
         return False
     # Full chunk text, not a slice — see the matching fix in context_utils.py. A 300-char
@@ -41,7 +46,11 @@ async def _llm_grade(query: str, hits: Sequence[Mapping[str, Any]]) -> bool:
     # relevant sentence it never saw as absent. See docs/TROUBLESHOOTING.md.
     context = "\n---\n".join(h["text"] for h in hits)
     settings = get_settings()
-    grading_model = settings.council_model_list[0] if settings.council_model_list else None
+    grading_model = (
+        settings.default_llm_model
+        if force_fast
+        else (settings.council_model_list[0] if settings.council_model_list else None)
+    )
     try:
         raw = await complete(
             _GRADE_PROMPT.format(context=context, query=query),
@@ -72,7 +81,7 @@ async def critic_node(state: AgentState) -> dict:
             # (observed: +4.6 for a correct top hit vs. -8 to -11 for the filler alongside it).
             # Averaging let 3 irrelevant chunks veto 1 excellent one; see docs/TROUBLESHOOTING.md.
             best_score = max(r["score"] for r in top)
-            llm_says_yes = await _llm_grade(state["query"], top)
+            llm_says_yes = await _llm_grade(state["query"], top, state.get("force_fast", False))
             score = best_score
             verdict = (
                 "sufficient" if (best_score > SCORE_THRESHOLD and llm_says_yes) else "insufficient"
@@ -92,9 +101,10 @@ async def critic_node(state: AgentState) -> dict:
 
 
 def route_after_critic(state: AgentState) -> str:
-    if (
-        state.get("critic_verdict") == "insufficient"
-        and state.get("loop_count", 0) < MAX_CRITIC_LOOPS
-    ):
+    # force_fast (the post-timeout retry attempt — see docs/DECISIONS.md) allows exactly one
+    # critic pass, no retries: the point of this attempt is to be fast, not to repeat the same
+    # rewrite-and-retry cost that just timed out.
+    cap = 1 if state.get("force_fast") else MAX_CRITIC_LOOPS
+    if state.get("critic_verdict") == "insufficient" and state.get("loop_count", 0) < cap:
         return "retry"
     return "proceed"

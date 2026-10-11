@@ -2,9 +2,21 @@
 query rewriting, cross-encoder reranking, context deduplication, and context compression —
 the full Hybrid RAG pipeline from Section 8.A, composable via flags since Phase 6's agentic
 mode and Phase 8's benchmark matrix both need to turn individual stages on and off.
+
+Every embed/rerank/compress call below is genuinely synchronous, CPU/GPU-bound local inference
+(sentence-transformers / a cross-encoder), not an awaited network call — and this function runs
+on every single chat turn (via app/agents/tools.py's hybrid_search_tool). Each one is wrapped in
+`asyncio.to_thread` (Fix 1 — see docs/DECISIONS.md): left unwrapped, each call blocks the one
+shared asyncio event loop for the whole forward pass, stalling every other concurrent
+coroutine on the process — other users' chat requests, health checks, the trace WebSocket — for
+as long as that call takes. The codebase already uses this exact pattern correctly for
+ingestion-time embedding (app/retrieval/indexing.py) and startup warm-up
+(app/core/preflight.py); it just was never applied to this, the actual per-request hot path.
 """
 
 from __future__ import annotations
+
+import asyncio
 
 from app.embeddings.registry import get_embedder
 from app.retrieval.compression import compress_hits
@@ -46,7 +58,7 @@ async def search(
     dense_hits = []
     bm25_hits = []
     if mode in ("hybrid", "dense"):
-        query_emb = get_embedder().embed_one(search_query)
+        query_emb = await asyncio.to_thread(get_embedder().embed_one, search_query)
         dense_hits = get_vector_store().query(query_emb, k=fetch_k, where=where)
     if mode in ("hybrid", "bm25"):
         bm25_hits = get_bm25_index().search(search_query, k=fetch_k, doc_id=doc_id)
@@ -75,10 +87,10 @@ async def search(
     if rerank:
         # Reranked against the *original* query — HyDE is a retrieval trick, not a redefinition
         # of what counts as relevant for the final answer.
-        candidates = get_reranker().rerank(query, candidates)
+        candidates = await asyncio.to_thread(get_reranker().rerank, query, candidates)
 
     if dedupe_strategy == "mmr":
-        query_emb = get_embedder().embed_one(query)
+        query_emb = await asyncio.to_thread(get_embedder().embed_one, query)
         embeddings = get_vector_store().get_embeddings([h.chunk_id for h in candidates])
         candidates = mmr_select(query_emb, candidates, embeddings, k=k)
     elif dedupe_strategy == "cosine":
@@ -90,6 +102,8 @@ async def search(
     candidates = candidates[:k]
 
     if compress:
-        candidates = compress_hits(query, candidates, max_tokens=max_context_tokens)
+        candidates = await asyncio.to_thread(
+            compress_hits, query, candidates, max_tokens=max_context_tokens
+        )
 
     return candidates
