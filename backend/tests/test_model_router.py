@@ -38,6 +38,23 @@ async def test_complete_with_latency_budget_uses_primary_when_it_succeeds() -> N
     assert result.latency_ms > 0
 
 
+async def test_complete_with_latency_budget_force_primary_model_overrides_the_pick() -> None:
+    settings = get_settings()
+    simple_query = "What is the vacation policy?"
+    assert select_primary_model(simple_query) == settings.default_llm_model
+
+    forced = settings.council_model_list[0]
+    result = await complete_with_latency_budget(
+        "Reply with the single word: hello",
+        query_for_routing=simple_query,
+        max_tokens=10,
+        force_primary_model=forced,
+    )
+    assert result.primary_model == forced
+    assert result.fell_back is False
+    assert result.model_used == forced
+
+
 async def test_complete_with_latency_budget_falls_back_when_primary_is_unavailable(
     monkeypatch,
 ) -> None:

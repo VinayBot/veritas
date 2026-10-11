@@ -9,6 +9,7 @@ import re
 
 from app.agents.context_utils import UNTRUSTED_CONTEXT_SYSTEM_PROMPT, build_numbered_context
 from app.agents.state import AgentState, Citation, record_step
+from app.core.config import get_settings
 from app.core.tracing import trace_bus
 from app.council.service import run_council
 from app.llm.client import LlmUnavailableError
@@ -71,12 +72,25 @@ async def synthesizer_node(state: AgentState) -> dict:
                     )
                 else:
                     prompt = _SYNTH_PROMPT.format(context=context, query=state["query"])
+                settings = get_settings()
+                # Reproduced live (see docs/TROUBLESHOOTING.md): on revision, the default fast
+                # model dropped the citation marker entirely and prefixed a self-contradicting
+                # "I don't have enough information... however" hedge in front of an otherwise
+                # correct, now-fully-supported answer — reproducible 2/2, while the stronger
+                # council model kept the citation and dropped the hedge both times. A revision
+                # is always a correction task, regardless of how simple the original query is.
+                force_model = (
+                    (settings.council_model_list[0] if settings.council_model_list else None)
+                    if is_revision
+                    else None
+                )
                 routed = await complete_with_latency_budget(
                     prompt,
                     query_for_routing=state["query"],
                     system=UNTRUSTED_CONTEXT_SYSTEM_PROMPT,
                     max_tokens=500,
                     temperature=0.2,
+                    force_primary_model=force_model,
                 )
                 answer = routed.answer
                 routing = {

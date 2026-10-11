@@ -178,4 +178,130 @@ correct answer cleanly, once, with a real citation and `faithfulness: 0.8` — s
 across three real scenarios: a grounded factual answer, a blocked injection, and a genuine
 abstain) and `backend/tests/test_agents_verifier.py` for a deterministic unit reproduction of
 the exact bad model output above.
-   a completion, it's still genuinely running or it's the one that will time out next.
+
+## Incident: "Can a German contractor work remotely without approval?" always abstained
+
+**Symptom.** Against the enriched Northwind fixture (4 real chunks, ~1370+ tokens), this golden
+question always abstained in agentic mode, even though the top-ranked retrieved chunk states
+the answer explicitly (an international-contractor exception, naming Germany specifically, with
+the approver's name masked as `<PERSON_6cc6eb>`). First hypothesis — the model choking on the
+PII token — was wrong (a prompt clause explaining the token didn't change the outcome) and led
+to live-reproducing five independent, compounding bugs on the real agentic path, each confirmed
+by calling the actual pipeline functions directly and inspecting raw model output before fixing
+anything.
+
+### Bug C — `build_numbered_context` silently truncated every chunk to 500 characters
+
+`app/agents/context_utils.py` built the Synthesizer's and Verifier's context as
+`h["text"][:500]`. Real chunks target 512 *tokens* (`BASELINE_SIZE`, `app/chunking/registry.py`)
+— roughly 2000+ characters of English prose — so this cut off after only the chunk's opening
+paragraph. The sentence naming Germany started at character 1066; the model never saw it.
+Confirmed by calling the Synthesizer's exact prompt-plus-system-message directly: with the
+500-char slice, the model correctly reported "it does not specify a nationality requirement" —
+a true statement about the truncated text it was actually given. **Fix**: pass the full chunk
+text; chunks are already bounded by the chunker's own token budget, so slicing again here was
+redundant as well as wrong.
+
+### Bug D — the Critic averaged relevance scores instead of taking the best one
+
+`app/agents/critic.py`'s corrective-RAG check computed `avg_score = sum(scores) / len(scores)`
+over the top-5 retrieved chunks and compared it to `SCORE_THRESHOLD = 0.3`. Reproduced live: the
+correct chunk scored **+4.6** on the cross-encoder (a strong match), but the 3 other, genuinely
+irrelevant chunks in the same top-5 scored **-8 to -11** — raw cross-encoder logits run far more
+negative for "irrelevant" than positive for "relevant" on this model. Averaging let the filler
+veto the one excellent match (avg ≈ -5.7), so the Critic judged the evidence insufficient and
+burned all 3 rewrite-retry attempts (HyDE, step-back, multi-query) before giving up — on every
+attempt, since the same filler chunks came back every time. **Fix**: use the best score in the
+top-k, not the mean; a corrective-RAG check should ask "is there at least one good source," not
+"is the whole retrieved set uniformly strong" (hybrid retrieval mixing in some noise alongside
+the right answer is normal, not a sign of a bad retrieval).
+
+### Bug E — the Critic's own LLM-grading prompt collided with the question's polarity
+
+Even after Bug D, the Critic's second signal — "Can this question be answered using ONLY the
+context above? Reply yes or no." — still said "No." given *only* the one perfectly relevant
+chunk. Isolated the cause with a controlled comparison: a question whose true answer is
+affirmative got "Yes."; the *same* context rephrased as a question whose true answer is
+negative/restrictive got "No." — the small grading model was answering the *object-level*
+question (there's no approval-free remote work for German contractors) instead of judging
+*answerability* (the context clearly states the restriction, so the question plainly can be
+answered). Reworking the prompt to ask for `ANSWERABLE`/`UNANSWERABLE` instead of `yes`/`no`
+didn't fix it alone — `DEFAULT_LLM_MODEL` (llama3.2:3b) still collapsed "the answer is
+restrictive" into "unanswerable." Swapping just this judgment call to
+`council_models[0]` (`qwen2.5:7b-instruct` — already the system's designated stronger model,
+see `select_primary_model`) got every case right in the same live comparison. **Fix**: reworded
+prompt + stronger model for this one call; first-pass answer *generation* is untouched and keeps
+the fast complexity-based router.
+
+### Bug F — the same Critic call also truncated its own context to 300 characters
+
+Separately from Bug C (`context_utils.py`), `critic.py`'s own `_llm_grade` built its grading
+context as `h["text"][:300]` — an even tighter slice of the same chunk, cutting off before
+"International Contractors" for the same underlying reason. Confirmed by dumping the Critic's
+exact prompt from a live run: the model was being asked to judge answerability from a context
+block that only contained the "Remote Work Eligibility" paragraph. **Fix**: full chunk text,
+matching the Bug C fix.
+
+### Bug G — the Verifier flagged a sentence copied almost verbatim from the context
+
+With Bugs C-F fixed, the Synthesizer produced a correct, cited answer — and the Verifier then
+flagged one of its two sentences as unsupported, triggering a revision that sometimes still
+ended in abstain. Reproduced live with the exact context and answer text: `llama3.2:3b` returned
+`'["This includes contractors based in Germany, ...regardless of the terms in their local
+contracting agreement."` (a sentence that is a **character-for-character** quote from the
+context) as unsupported; `qwen2.5:7b-instruct` correctly returned `[]` on the same input. Fixed
+the Verifier's grading call the same way as Bug E (`council_models[0]`) — but a second, *shorter*
+version of the same context (missing two unrelated sections that happen to share the real
+chunk) did **not** reproduce the failure even on the weak model, meaning the full ~2600-char,
+multi-section chunk length specifically was part of what triggered it. Rather than trust either
+model's judgment alone for a case this reproducible, `app/agents/verifier.py` also gained
+`_is_claim_grounded_in_context`: a claim that is itself a near-verbatim excerpt of the context is
+supported *by definition*, independent of what either model concludes — the same shape as the
+existing `_is_claim_grounded_in_answer` check (Bug B above), but checked against the context
+instead of the answer, and held to a stricter 0.9 word-overlap bar (vs. 0.7) since it overrides a
+verdict the model actually reached rather than just screening out a hallucinated finding.
+
+### Bug H — the Synthesizer's revision pass dropped its citation marker
+
+Once Bugs C-G no longer forced a wrongful abstain, the *revised* answer (produced after the
+Verifier's first pass flagged something, before Bug G existed) sometimes came back with no `[n]`
+marker at all, and once with a bizarre self-contradicting hedge: *"I don't have enough
+information to provide a definitive answer. However, [a complete, correct, specific answer]."*
+Reproduced 2/2 on `llama3.2:3b`, 0/2 on `qwen2.5:7b-instruct` with the identical revise prompt.
+**Fix**: `complete_with_latency_budget` (`app/llm/router.py`) gained a `force_primary_model`
+override, and the Synthesizer's revision branch (only the revision branch — first-pass synthesis
+keeps the fast complexity-based router) always passes `council_models[0]`, on the reasoning that
+*correcting* a flawed answer while preserving its citation is inherently a harder task than a
+first-pass answer, regardless of how simple the original query looks.
+
+**Verified live, repeatedly, after all six fixes**: 5 consecutive runs against fresh uploads
+(3 exercising the full pipeline fresh, 2 served correctly from the semantic cache) all returned
+the correct, cited answer with zero abstains — including runs that needed a revision pass and
+runs that didn't. See `backend/tests/test_agents_critic.py`
+(`test_critic_with_one_strong_hit_among_weak_filler_is_sufficient`),
+`backend/tests/test_agents_verifier.py`
+(`test_verifier_accepts_a_multi_clause_sentence_copied_almost_verbatim`,
+`test_claim_grounded_in_context_accepts_an_exact_quote`), and `backend/tests/test_model_router.py`
+(`test_complete_with_latency_budget_force_primary_model_overrides_the_pick`) for permanent
+regression coverage. A separate, lower-severity gap surfaced during this verification and is
+*not* fixed by the above: first-pass synthesis (still on the fast default model for simple
+queries) occasionally omits its `[1]` marker even when the answer is correct and the Verifier
+confirms it's fully supported, which trips the output guardrail's non-blocking
+`escalate (missing_citations)` audit flag. The answer still reaches the user correctly either
+way; tracked as a follow-up, not folded into this fix.
+
+### Observed but not reproduced: an intermittent Llama Guard output false-positive
+
+While spot-checking the fixes above against other named individuals in the same document, one
+run of a different, unrelated question ("Who signs off on the final version of the annual
+policy review?") came back as `"I can't provide that response."` — the output guardrail's
+`llama_guard_output` block path (`app/guardrails/output.py`), not an abstain. Re-running the
+identical question immediately after returned the correct answer (`"...Elena Petrova, Director
+of Global Operations."`), and directly classifying three reasonable variants of that same
+correct sentence all came back `is_safe=True` — so this didn't reproduce, and the exact text
+that got flagged on the one failing run wasn't captured (synthesis runs at `temperature=0.2`, so
+the exact wording isn't reproducible after the fact). Logged for awareness rather than
+root-caused: this is a different subsystem (output safety classification) from Bugs C-H above,
+the project already has one documented Llama Guard false-positive pattern (the S7/`reveal_pii`
+case in `docs/DECISIONS.md`), and chasing a non-reproducing intermittent failure without the
+triggering text would mean guessing at a fix rather than verifying one.

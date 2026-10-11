@@ -67,9 +67,15 @@ async def complete_with_latency_budget(
     system: str | None = None,
     max_tokens: int = 500,
     temperature: float = 0.2,
+    force_primary_model: str | None = None,
 ) -> RoutedCompletion:
+    """`force_primary_model` skips the complexity-based pick below for a call that's always
+    reasoning-sensitive regardless of how simple the original query looks — e.g. the
+    Synthesizer's revision pass (see docs/TROUBLESHOOTING.md): correcting a flawed answer while
+    preserving its citation is a harder task than the first-pass synthesis that `query` alone
+    would route as "simple"."""
     settings = get_settings()
-    primary_model = select_primary_model(query_for_routing)
+    primary_model = force_primary_model or select_primary_model(query_for_routing)
     fallback_model = settings.default_llm_model
     budget_s = settings.model_router_latency_budget_ms / 1000
 

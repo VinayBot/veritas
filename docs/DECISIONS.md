@@ -1076,3 +1076,42 @@ ask, per that brief's own rule 1:
   verification harness both need it; UI restructuring moved into place before anything is
   deleted, so there's never a window where removed functionality (Guardrails' audit log,
   Dashboard's advisor view) has nowhere to live. Further decisions recorded as each piece lands.
+
+## A golden chat question that always abstained — six compounding bugs, one investigation
+
+Verifying the PII-token prompt clause from the previous entry against the real golden question
+("Can a German contractor work remotely without approval?") showed it hadn't actually fixed
+anything — the first hypothesis (the model choking on a masked PII token) was wrong. Rather than
+stop at "still broken, moving on," kept root-causing with live reproduction at each step (per the
+brief's rule 5) and found five more bugs underneath, all compounding on the same question. Full
+technical writeup in `docs/TROUBLESHOOTING.md`'s "always abstained" entry (Bugs C-H). Decisions:
+
+- **A wrong first hypothesis gets discarded, not patched around.** The PII-token prompt clause
+  (previous entry) is harmless and still correct guidance, so it was kept — but the investigation
+  moved on to the real cause (chunk truncation) rather than adding more prompt text to make the
+  wrong hypothesis "work."
+- **Pattern that emerged and was applied consistently once recognized**: small-model
+  (`llama3.2:3b`, `DEFAULT_LLM_MODEL`) unreliability on *reasoning-sensitive, binary judgment*
+  calls — the Critic's answerability check, the Verifier's claim-support check, the Synthesizer's
+  revision pass — not on first-pass answer generation itself. Each was confirmed independently
+  with a live, controlled before/after comparison (same prompt and context, model swapped) before
+  being fixed, rather than assumed from the first instance. The fix routes each specific call to
+  `council_models[0]` (`qwen2.5:7b-instruct`, already the system's designated stronger model —
+  see `select_primary_model`, `app/llm/router.py`) rather than raising `DEFAULT_LLM_MODEL`
+  globally, which would have slowed down every simple query's first-pass answer for a reliability
+  gap that was specifically localized to these three judgment calls.
+- **Added a deterministic safety net for the Verifier (`_is_claim_grounded_in_context`) rather
+  than trusting the model-swap fix alone.** Bug G reproduced on the real, full-length chunk but
+  *not* on a shorter approximation of the same content — meaning the failure was sensitive to
+  exact context length/shape in a way that's hard to fully trust even the stronger model on. A
+  claim that's a near-verbatim quote of the context is supported by definition; checking that
+  mechanically is strictly more trustworthy than any model's self-report, and costs nothing when
+  the model is already right.
+- **Scope boundary**: a sixth, lower-severity issue surfaced during verification (first-pass
+  synthesis, still on the fast default model, occasionally omits its citation marker even on a
+  correct, Verifier-confirmed answer — a non-blocking `escalate (missing_citations)` audit flag,
+  not an abstain). Documented and left for a separate increment rather than folded in: it's a
+  distinct symptom (a citation gap, not a wrong-answer gap) with a different fix shape (likely
+  extending the existing n=1 citation-inference fallback in `app/agents/synthesizer.py` to a
+  "one dominant source" case), and this entry's six fixes were already independently verified as
+  a complete, coherent chain for the originally-reported bug.
