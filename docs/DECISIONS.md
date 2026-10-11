@@ -1146,3 +1146,39 @@ found 0 evidence" in `docs/TROUBLESHOOTING.md` (Bug I). Decisions:
   brief's rule 5 ("root cause with evidence") implies doing *before* calling something done —
   stopping at the one originally-reported question would have left two real, separate bugs
   undiscovered.
+
+## Removing the Guardrails tab (TASK 4): where each piece of its content actually went
+
+Per the brief's TASK 4 — "removing the Guardrails tab once Evaluation gets safety rows and
+Architecture's node drawers show per-node audit entries" — both prerequisites are now real,
+not stubbed, so the tab came out. Decisions:
+
+- **The audit log went to Architecture's drawer, correlated by `trace_id`, not by polling the
+  whole session's log into every drawer.** Every guardrail check already records its audit
+  entry with the exact same `trace_id` as the stage that ran it (`app/agents/guardian.py`,
+  `app/guardrails/retrieval.py` all pass `h.trace_id` straight through to `audit_record`) — so
+  a drawer for one specific node can fetch the session's audit entries and filter to just the
+  ones with that `trace_id`, showing exactly what that node decided, not a session-wide table a
+  user has to manually correlate themselves. This is a strictly more precise replacement for the
+  old standalone table, not a feature regression.
+- **The red-team suite went to Evaluation as its own card, not merged into the existing
+  Benchmark Run card.** The Benchmark Run already surfaces a safety *summary* line (injection
+  block rate, PII leak count) as part of a full eval pass, but the red-team suite is a faster,
+  standalone action users should be able to run without waiting on dataset generation + a full
+  benchmark. Keeping it a separate card preserves that immediacy instead of only being reachable
+  by first running the slower combined benchmark.
+- **Verification caught a real test-authoring bug, not just a feature gap**: the first drawer
+  test wrote hung the whole suite for its full 300s timeout, because the Drawer is a modal
+  overlay that silently blocks pointer events on every later nav link once opened, and the test
+  never closed it. Fixed by explicitly closing it (`Escape` + asserting the dialog is gone)
+  before the next step — a reminder that "the assertions inside a step pass" doesn't mean the
+  step as a whole left the page in a clean state for what comes next.
+- **Running the full three-file e2e suite as one invocation surfaced a confirmed, reproducible
+  backend crash (a native macOS Metal/GPU assertion, pre-existing, unrelated to this change) —
+  full writeup in `docs/TROUBLESHOOTING.md`.** This was verified as pre-existing (not caused by
+  this change) by reproducing it on a completely fresh backend before any Guardrails-removal
+  code existed in that run's context, and by independently confirming each actual change passes
+  cleanly in isolated runs instead. Chasing a fix for that crash was explicitly out of scope for
+  this increment — it's a different, much larger architectural problem (serializing GPU-bound
+  model calls) — but it's real and documented rather than silently worked around by only ever
+  running tests in a way that happens to avoid it.

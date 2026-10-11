@@ -1,13 +1,17 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { FlaskConical, Loader2 } from 'lucide-react'
+import { FlaskConical, Loader2, ShieldAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { StateMessage } from '@/components/ui/state-message'
 import { useAppStore } from '@/store/app-store'
-import { generateDataset, runBenchmark, ApiError } from '@/lib/api/client'
-import type { BenchmarkRunResponse, GenerateDatasetResponse } from '@/lib/api/types'
+import { generateDataset, runBenchmark, runRedteam, ApiError } from '@/lib/api/client'
+import type {
+  BenchmarkRunResponse,
+  GenerateDatasetResponse,
+  RedTeamRunResponse,
+} from '@/lib/api/types'
 
 export function EvaluationPage() {
   const { documentId } = useAppStore()
@@ -15,6 +19,21 @@ export function EvaluationPage() {
   const [dataset, setDataset] = useState<GenerateDatasetResponse | null>(null)
   const [benchmarking, setBenchmarking] = useState(false)
   const [benchmark, setBenchmark] = useState<BenchmarkRunResponse | null>(null)
+  const [redteamRunning, setRedteamRunning] = useState(false)
+  const [redteam, setRedteam] = useState<RedTeamRunResponse | null>(null)
+
+  async function handleRedteam() {
+    setRedteamRunning(true)
+    try {
+      const data = await runRedteam()
+      setRedteam(data)
+      toast.success(`Red-team: ${(data.block_rate * 100).toFixed(1)}% blocked`)
+    } catch {
+      toast.error('Red-team run failed')
+    } finally {
+      setRedteamRunning(false)
+    }
+  }
 
   async function handleGenerate() {
     if (!documentId) return
@@ -160,6 +179,61 @@ export function EvaluationPage() {
           )}
         </CardContent>
       </Card>
+
+      <Card data-testid="safety-redteam-card">
+        <CardHeader>
+          <CardTitle>Safety / Red-Team Suite</CardTitle>
+          <CardDescription>
+            42 attacks across 5 categories + 15 benign prompts, run against the real guardrail
+            stack right now — the same safety signal the Benchmark Run above also reports, but
+            immediate and standalone rather than bundled into a full eval pass.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button onClick={() => void handleRedteam()} disabled={redteamRunning}>
+            {redteamRunning ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <ShieldAlert className="size-4" />
+            )}
+            {redteamRunning ? 'Running attack suite...' : 'Run red-team suite'}
+          </Button>
+          {redteam && (
+            <div className="mt-4 flex flex-col gap-3">
+              <div className="flex gap-4">
+                <SafetyMetric
+                  label="Block rate"
+                  value={`${(redteam.block_rate * 100).toFixed(1)}%`}
+                  good={redteam.block_rate >= 0.95}
+                />
+                <SafetyMetric
+                  label="False positives"
+                  value={`${(redteam.false_positive_rate * 100).toFixed(1)}%`}
+                  good={redteam.false_positive_rate <= 0.1}
+                />
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(redteam.by_category).map(([cat, stats]) => (
+                  <Badge key={cat} variant="outline">
+                    {cat}: {stats.blocked}/{stats.total}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+function SafetyMetric({ label, value, good }: { label: string; value: string; good: boolean }) {
+  return (
+    <div className="rounded-md border border-border bg-surface-raised px-3 py-2">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className={`font-display text-lg font-semibold ${good ? 'text-success' : 'text-danger'}`}>
+        {value}
+      </p>
     </div>
   )
 }

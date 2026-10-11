@@ -1,7 +1,7 @@
 import { NavLink, Outlet, Link } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
-import { MessageSquare, Workflow, Share2, FlaskConical, ShieldAlert } from 'lucide-react'
+import { MessageSquare, Workflow, Share2, FlaskConical } from 'lucide-react'
 import { ThemeToggle } from '@/components/ui/theme-toggle'
 import { Badge } from '@/components/ui/badge'
 import { AlertBanner } from '@/components/ui/alert-banner'
@@ -14,7 +14,6 @@ const NAV_ITEMS = [
   { to: '/app/architecture', label: 'Architecture', icon: Workflow, end: false },
   { to: '/app/graph', label: 'Knowledge Graph', icon: Share2, end: false },
   { to: '/app/evaluation', label: 'Evaluation', icon: FlaskConical, end: false },
-  { to: '/app/guardrails', label: 'Guardrails', icon: ShieldAlert, end: false },
 ]
 
 /** Lifted into AppShell (rather than each caller polling separately) so the sidebar badge and

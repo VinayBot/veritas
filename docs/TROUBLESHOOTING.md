@@ -358,3 +358,71 @@ it's tracked as a separate, not-yet-attempted next step rather than rushed here.
 person until the triple-linking gap above is addressed — `agentic` and `hybrid` modes are
 unaffected (they don't use the knowledge graph as their primary retrieval path for a direct
 question like this one; `agentic` only consults it as one of several tools).
+
+## Infrastructure: a native macOS Metal/GPU crash under heavy concurrent model inference
+
+**Symptom.** `ingestion.spec.ts`'s two "reaches ready within 60s" tests both failed —
+`getByText('ready', { exact: true })` never appeared — right after a backend log line:
+
+```
+-[AGXG17GFamilyCommandBuffer tryCoalescingPreviousComputeCommandEncoderWithConfig:nextEncoderClass:]:1094:
+failed assertion `A command encoder is already encoding to this command buffer'
+.../multiprocessing/resource_tracker.py:254: UserWarning: resource_tracker: There appear to be
+1 leaked semaphore objects to clean up at shutdown
+```
+
+This is Apple's Metal framework asserting on a native command-buffer usage violation inside
+whichever ML library (torch/sentence-transformers, used by the embedder/reranker/PII detector)
+was running GPU inference at the time — not Python, not application code, and not something a
+`try`/`except` in this codebase can catch or recover from. Observed for the third time this
+project (the first two weren't yet written up); each time it's followed heavy, repeated
+concurrent model usage within one long-lived backend process — exactly this session's own
+pattern of dozens of manual test uploads/chats plus a Playwright run in the same window.
+
+**Confirmed infrastructure, not a code regression**: a plain `curl` upload/poll of the identical
+file against the same running process completed in ~5s immediately beforehand; after a clean
+`pkill -9` + restart (no code change), the exact same 5 ingestion tests that had just hung for
+60s each passed in 26.4s total. The crash appears to leave whatever model call was in flight
+(or a shared lazy-loaded model object) in a stuck state for the rest of that process's life,
+rather than erroring cleanly — so one bad native assertion silently turns into "ready never
+appears" much later, for unrelated requests, with nothing in the Python-level logs pointing
+back to it unless the full log is actually read.
+
+**Mitigation, not a fix**: there's no code-level recovery from a native Metal assertion inside a
+third-party library's compiled GPU kernel. When ingestion or chat inexplicably hangs/times out
+with the backend otherwise reporting healthy, grep its log for `AGXG17` / `MTLCommandBuffer` /
+`failed assertion` / `leaked semaphore` before assuming an application bug — if present, restart
+the backend (`pkill -9 -f "uvicorn app.main:app"`, verify `pgrep` is empty, start fresh) and
+re-run, per the same pattern already used for the zombie-process incident above. Not re-triaged
+as a flaky test to "just re-run": the test itself is correct and passes reliably once the
+process is healthy.
+
+**Escalation — confirmed reliably reproducible, not an occasional fluke.** Running the entire
+e2e suite in one invocation (`npx playwright test tests/e2e/`, all three spec files together)
+crashed the backend process outright (not just one stuck request) twice in a row, from a
+genuinely fresh restart each time, with two slightly different assertion sites in the same
+Metal command-buffer code (`setCurrentCommandEncoder:` once, `tryCoalescingPrevious...` another
+time) — both followed by the same `leaked semaphore` warning and the process exiting. Each time,
+the log showed multiple uploads' embedding batches starting within the same second, overlapping
+with an earlier upload's still-running background enrichment (graph extraction's own LLM/
+embedding calls, per `app/ingestion/service.py`'s deliberate "critical path first, enrichment
+after" design) — i.e. this is this backend's *own internal* asyncio concurrency across
+simultaneously in-flight requests and background tasks, not Playwright's (`fullyParallel: false`
+already serializes the test runner itself to one at a time). Isolated runs of each spec file
+individually, or any two together right after a fresh restart, passed cleanly every time this
+session — it's specifically the combination of "fresh document count go up fast" and "earlier
+documents' background enrichment hasn't finished yet" that reproduces it. A real fix would mean
+serializing all GPU-bound model calls (embedder/reranker/PII detector/graph extraction) behind
+one lock so at most one touches Metal at a time — a genuine architectural change, not attempted
+here.
+
+This matters more than a workaround note: `tests/e2e/README.md`'s own documented instructions
+say to run `npx playwright test` with no file filter — exactly the invocation that reproducibly
+crashes the backend. There's also no `make` target that runs this suite at all right now
+(`frontend-test` is `npm run test --if-present`, and no `test` script exists in
+`package.json`, so `make test` silently no-ops on the frontend side) — so there's no CI
+reference to fall back on for "how this is supposed to be run safely" either. Until the
+underlying concurrency issue has a real fix, run spec files separately
+(`npx playwright test tests/e2e/<file>.spec.ts`) and restart the backend between heavy batches,
+and treat updating the README's instructions and wiring up a real frontend test target as
+follow-ups in their own right, not assumed to already be handled elsewhere.

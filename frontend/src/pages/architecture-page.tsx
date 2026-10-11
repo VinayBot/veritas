@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -24,7 +24,15 @@ import {
 } from '@/components/ui/drawer'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import type { TraceEvent, TraceStatus } from '@/lib/api/types'
+import { getAudit } from '@/lib/api/client'
+import type { AuditEntry, TraceEvent, TraceStatus } from '@/lib/api/types'
+
+const DECISION_VARIANT: Record<string, 'success' | 'destructive' | 'outline' | 'warning'> = {
+  allow: 'success',
+  block: 'destructive',
+  redact: 'warning',
+  escalate: 'warning',
+}
 
 const INGESTION_LANE: { id: string; label: string }[] = [
   { id: 'upload', label: 'Upload' },
@@ -151,6 +159,33 @@ export function ArchitecturePage() {
   const [selected, setSelected] = useState<{ stage: string; event: TraceEvent | null } | null>(
     null,
   )
+  const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([])
+  const [auditLoaded, setAuditLoaded] = useState(false)
+
+  const loadAuditForSelection = useCallback(async (event: TraceEvent | null) => {
+    if (!event) {
+      setAuditEntries([])
+      setAuditLoaded(true)
+      return
+    }
+    setAuditLoaded(false)
+    try {
+      // Every guardrail check records its audit entry with the same trace_id as the stage
+      // that ran it (app/agents/guardian.py, app/guardrails/retrieval.py all pass h.trace_id
+      // straight through) — so filtering by it, not just session_id, gets exactly this node's
+      // own decisions instead of every guardrail decision made anywhere in the session.
+      const data = await getAudit({ session_id: event.session_id, limit: 100 })
+      setAuditEntries(data.entries.filter((e) => e.trace_id === event.trace_id))
+    } catch {
+      setAuditEntries([])
+    } finally {
+      setAuditLoaded(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadAuditForSelection(selected?.event ?? null)
+  }, [selected, loadAuditForSelection])
 
   const { nodes, edges } = useMemo(() => {
     const lane = source === 'ingestion' ? INGESTION_LANE : CHAT_LANE
@@ -296,6 +331,43 @@ export function ArchitecturePage() {
                       </pre>
                     </div>
                   )}
+                  <div data-testid="node-audit-entries">
+                    <p className="mb-1 text-xs font-medium text-muted-foreground">
+                      Guardrail Decisions
+                    </p>
+                    {!auditLoaded && (
+                      <p className="text-xs text-muted-foreground">Loading...</p>
+                    )}
+                    {auditLoaded && auditEntries.length === 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        No guardrail decisions recorded for this node.
+                      </p>
+                    )}
+                    {auditLoaded && auditEntries.length > 0 && (
+                      <div className="flex flex-col gap-2">
+                        {auditEntries.map((entry) => (
+                          <div
+                            key={entry.id}
+                            className="rounded-md border border-border bg-surface-raised p-2 text-xs"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-medium text-foreground">
+                                {entry.layer} / {entry.rule}
+                              </span>
+                              <Badge variant={DECISION_VARIANT[entry.decision] ?? 'outline'}>
+                                {entry.decision}
+                              </Badge>
+                            </div>
+                            {entry.redacted_excerpt && (
+                              <p className="mt-1 truncate text-muted-foreground">
+                                {entry.redacted_excerpt}
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">

@@ -10,7 +10,6 @@ import { WorkspacePage } from '@/pages/workspace-page'
 import { ArchitecturePage } from '@/pages/architecture-page'
 import { KnowledgeGraphPage } from '@/pages/knowledge-graph-page'
 import { EvaluationPage } from '@/pages/evaluation-page'
-import { GuardrailsPage } from '@/pages/guardrails-page'
 import { RobotPreviewPage } from '@/pages/_robot-preview-page'
 
 function App() {
@@ -32,7 +31,10 @@ function App() {
                   <Route path="/app/architecture" element={<ArchitecturePage />} />
                   <Route path="/app/graph" element={<KnowledgeGraphPage />} />
                   <Route path="/app/evaluation" element={<EvaluationPage />} />
-                  <Route path="/app/guardrails" element={<GuardrailsPage />} />
+                  {/* Guardrails' content moved out — the red-team suite into Evaluation's
+                      Safety card, the audit log into Architecture's per-node drawer (see
+                      docs/DECISIONS.md). Old links/bookmarks still land somewhere real. */}
+                  <Route path="/app/guardrails" element={<Navigate to="/app/evaluation" replace />} />
                 </Route>
               </Routes>
             </BrowserRouter>

@@ -4,7 +4,7 @@ import path from 'node:path'
 /** One real walk through every tab, against a real backend — see tests/e2e/README.md.
  * Deliberately a single sequential test (not split per-page) since every later step depends
  * on the document uploaded in the first one; splitting it would mean re-ingesting per test. */
-test('full workspace (incl. the embedded advisor panel) -> architecture -> graph -> guardrails -> evaluation flow', async ({
+test('full workspace (incl. the embedded advisor panel) -> architecture (incl. per-node audit) -> graph -> evaluation (incl. safety suite) flow', async ({
   page,
   request,
 }) => {
@@ -105,22 +105,41 @@ test('full workspace (incl. the embedded advisor panel) -> architecture -> graph
     await expect(page.getByText('Advisor')).toBeVisible()
   })
 
+  await test.step('architecture node drawer shows the real guardrail audit entries for that node', async () => {
+    // The chat step above already ran a real turn, so Guardian In's own trace event carries a
+    // real trace_id with a real "allow" decision recorded against it (see docs/DECISIONS.md —
+    // this replaced the standalone Guardrails tab's audit log once this per-node correlation
+    // existed; getByRole('button', ...) rather than getByText since the chat lane's "Chat"
+    // toggle also renders a plain-text source selector elsewhere on this same page).
+    await page.getByRole('button', { name: 'Chat' }).click()
+    await page.getByRole('button', { name: 'Guardian In' }).click()
+    const auditSection = page.getByTestId('node-audit-entries')
+    await expect(auditSection).toBeVisible()
+    await expect(auditSection.getByText('allow')).toBeVisible({ timeout: 15_000 })
+    // The drawer is a modal overlay — closing it is not just tidiness, an open one blocks
+    // pointer events on every later nav link and silently hangs the next step's click.
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).not.toBeVisible()
+  })
+
   await test.step('knowledge graph renders real extracted entities', async () => {
     await page.getByRole('link', { name: 'Knowledge Graph' }).click()
     await expect(page).toHaveURL(/\/app\/graph$/)
     await expect(page.locator('canvas')).toBeVisible({ timeout: 15_000 })
   })
 
-  await test.step('guardrails tab shows the real audit log', async () => {
-    await page.getByRole('link', { name: 'Guardrails' }).click()
-    await expect(page).toHaveURL(/\/app\/guardrails$/)
-    await expect(page.getByText('input_checks').first()).toBeVisible({ timeout: 15_000 })
-  })
-
-  await test.step('evaluation tab is reachable (benchmark run not triggered — too slow for a smoke test)', async () => {
+  await test.step('evaluation tab is reachable, including the safety suite that replaced the Guardrails tab (benchmark/red-team runs not triggered — too slow for a smoke test)', async () => {
     await page.getByRole('link', { name: 'Evaluation' }).click()
     await expect(page).toHaveURL(/\/app\/evaluation$/)
     await expect(page.getByRole('button', { name: /generate dataset/i })).toBeVisible()
+    const safetyCard = page.getByTestId('safety-redteam-card')
+    await expect(safetyCard).toBeVisible()
+    await expect(safetyCard.getByRole('button', { name: /run red-team suite/i })).toBeVisible()
+  })
+
+  await test.step('old Guardrails bookmark redirects instead of 404ing', async () => {
+    await page.goto('/app/guardrails')
+    await expect(page).toHaveURL(/\/app\/evaluation$/)
   })
 
   expect(consoleErrors, `Console errors during the flow:\n${consoleErrors.join('\n')}`).toEqual([])
