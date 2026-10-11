@@ -1115,3 +1115,34 @@ technical writeup in `docs/TROUBLESHOOTING.md`'s "always abstained" entry (Bugs 
   extending the existing n=1 citation-inference fallback in `app/agents/synthesizer.py` to a
   "one dominant source" case), and this entry's six fixes were already independently verified as
   a complete, coherent chain for the originally-reported bug.
+
+## Spot-checking the fix across chat modes surfaced a graph-mode bug two layers deep
+
+Checking that the six fixes above generalize (not just the one exact question) across
+`agentic`/`hybrid`/`graph` modes found `graph` mode returning 0 evidence for the same question,
+despite a visibly-correct `Germany` node in the Knowledge Graph. Full writeup: "graph chat mode
+found 0 evidence" in `docs/TROUBLESHOOTING.md` (Bug I). Decisions:
+
+- **Fixed the first layer (PII-masked entities never recognized at all) and shipped it, rather
+  than holding it back until the second layer was also solved.** The entity-recognition fix
+  (`app/graphrag/extractor.py`) is independently correct and verified — any relationship
+  involving a masked person was unconditionally unrepresentable in the graph before this, for
+  every document with PII, not just this one question. It just isn't *sufficient* on its own for
+  this specific question, because of a second, different bug in a different function
+  (`build_graph_for_document`'s triple-to-entity linking). Shipping a real, verified partial fix
+  with the remaining gap clearly documented is more honest than either holding it back
+  (leaving a confirmed bug unfixed because of an unrelated one) or quietly expanding scope to
+  chase the second bug in the same breath.
+- **Did not attempt the triple-linking fix in the same pass.** Reworking either
+  `build_graph_for_document`'s exact-match linking (to fuzzy/substring, mirroring
+  `resolve_entities`'s existing leniency) or `extract_triples_llm`'s prompt (to force verbatim
+  entity references) is a real design change to code this session hadn't touched yet, with its
+  own failure modes to verify (fuzzy matching that's too loose can wrongly link unrelated
+  entities). Rushing it to fully close one golden question risked exactly the kind of
+  under-verified fix the brief's "never fake anything" rule warns against. Tracked as a
+  concrete, well-characterized next step instead.
+- **This was found via this session's own extra verification, not asked for.** Spot-checking
+  generalization (across modes, across other named individuals in the fixture) is what the
+  brief's rule 5 ("root cause with evidence") implies doing *before* calling something done —
+  stopping at the one originally-reported question would have left two real, separate bugs
+  undiscovered.

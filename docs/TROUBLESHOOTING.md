@@ -305,3 +305,56 @@ root-caused: this is a different subsystem (output safety classification) from B
 the project already has one documented Llama Guard false-positive pattern (the S7/`reveal_pii`
 case in `docs/DECISIONS.md`), and chasing a non-reproducing intermittent failure without the
 triggering text would mean guessing at a fix rather than verifying one.
+
+## Incident: "graph" chat mode found 0 evidence for a question the document clearly answers
+
+**Symptom.** Spot-checking the same golden question in `graph` mode (one of the three valid
+chat modes alongside `agentic`/`hybrid`) returned an abstain with `"retriever": "Graph retrieval
+found 0 piece(s) of evidence."`, even though the Knowledge Graph for this document visibly
+contained a `Germany` node.
+
+### Bug I (partially fixed) — PII masking runs before entity extraction, so a masked person was never a graph node at all
+
+Ingestion's critical path masks PII (`pii_vault` stage) *before* chunking and indexing; graph
+extraction (`build_graph_for_document`, `app/graphrag/service.py`) runs afterward, as
+enrichment, over those already-masked chunks. `extract_entities` (`app/graphrag/extractor.py`)
+is spaCy NER, which has never seen the shape `<PERSON_6cc6eb>` before and tagged it as nothing —
+confirmed directly: `extract_entities(...)` on the real sentence found `Germany` (GPE) but
+nothing for the masked approver. `build_graph_for_document` requires *both* a triple's subject
+and object to resolve to an entity its own NER pass found in that chunk, and explicitly drops
+the triple otherwise (`"Couldn't link the triple's subject/object back to an entity ... dropped
+rather than guessed at"` — a deliberate precision-over-recall choice, not an oversight). Since
+the masked approver was never an entity, *no relationship involving them could ever become a
+graph edge* — not just for this question, but for any relationship in any document where PII
+masking replaced one side of it. **Fix**: `extract_entities` now also matches the PII token's
+own format (`<ENTITY_TYPE_6hexchars>`, same shape `app/privacy/tokenizer.py` produces) and adds
+each match as an entity labeled by its type (`PERSON`, `EMAIL_ADDRESS`, etc.) — recovering it as
+a real, lookup-able graph node without the real value ever entering extraction, matching, or
+storage. Confirmed live: the same document now has a `<PERSON_6cc6eb>` `PERSON` node alongside
+`Germany`.
+
+**This did not fully fix the symptom.** With the node now present, `graph` mode for the same
+question still returns 0 evidence, because of a second, independent problem one layer deeper:
+`extract_triples_llm`'s relation extraction is itself an LLM call, and — reproduced live,
+deterministic at `temperature=0.0`, identical across 3 runs — it paraphrases rather than quoting
+the NER surface forms: it extracts `'Head of Global Compliance' -- 'approval' --> 'is required'`
+(the *role*, not the `<PERSON_6cc6eb>` token actually in the text) and `'Contractors' -- 'who
+are' --> 'based in Germany'` (the object is `"based in Germany"`, not the bare entity text
+`"Germany"` the GPE node is keyed on). `build_graph_for_document`'s subject/object matching is
+exact-normalized-string-only, so neither triple links to either node, and no edge forms, even
+though both nodes now exist. Fixing this properly means either fuzzy/substring matching between
+a triple's subject or object and known entity mentions (the same kind of leniency
+`resolve_entities` already applies when deduplicating NER mentions — see
+`app/graphrag/resolver.py`), or reworking `_TRIPLE_PROMPT` to require the triple's subject/object
+to be copied verbatim from a provided entity list rather than freely paraphrased. Either is a
+real design change to a different function than the one just fixed, not a quick follow-on, so
+it's tracked as a separate, not-yet-attempted next step rather than rushed here.
+
+**Verified**: `backend/tests/test_graphrag_extractor.py`
+(`test_extract_entities_recognizes_a_masked_pii_token`) and
+`backend/tests/test_graphrag_service.py`
+(`test_build_graph_creates_a_node_for_a_masked_pii_token`) cover the entity-recognition fix that
+*is* complete. `graph` mode remains unreliable for questions whose answer involves a masked
+person until the triple-linking gap above is addressed — `agentic` and `hybrid` modes are
+unaffected (they don't use the knowledge graph as their primary retrieval path for a direct
+question like this one; `agentic` only consults it as one of several tools).

@@ -39,13 +39,33 @@ def _get_nlp():
     return spacy.load("en_core_web_sm")
 
 
+# PII masking (app/privacy/tokenizer.py's make_token) runs before chunking, which runs before
+# graph extraction — so by the time any of this sees the text, a real name is already
+# "<PERSON_6cc6eb>". spaCy's NER has never seen that shape of token and doesn't tag it as
+# anything, which silently drops every relationship a masked person was ever part of: see
+# docs/TROUBLESHOOTING.md. Matching the token's own format recovers it as a same-shaped entity
+# (label "PERSON"/"EMAIL_ADDRESS"/etc., text the token itself) without ever touching the real
+# value — the opaque token is all this ever sees or stores.
+_PII_TOKEN_RE = re.compile(r"<([A-Z_]+)_[0-9a-f]{6}>")
+
+
 def extract_entities(text: str) -> list[Entity]:
     nlp = _get_nlp()
     doc = nlp(text)
-    return [
+    entities = [
         Entity(text=ent.text, label=ent.label_, start=ent.start_char, end=ent.end_char)
         for ent in doc.ents
     ]
+    for match in _PII_TOKEN_RE.finditer(text):
+        entities.append(
+            Entity(
+                text=match.group(0),
+                label=match.group(1),
+                start=match.start(),
+                end=match.end(),
+            )
+        )
+    return entities
 
 
 _TRIPLE_PROMPT = """Extract factual relationship triples from the text below. Return ONLY a \
