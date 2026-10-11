@@ -341,3 +341,17 @@ export interface TraceEvent {
   output_preview: string | null
   metrics: Record<string, unknown>
 }
+
+// ---- Test Center ----
+
+export interface SelfTestCheck {
+  name: string
+  ok: boolean
+  detail: string
+  duration_ms: number
+}
+
+export interface SelfTestResponse {
+  checks: SelfTestCheck[]
+  all_ok: boolean
+}

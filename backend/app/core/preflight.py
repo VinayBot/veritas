@@ -64,7 +64,7 @@ def get_last_report() -> PreflightReport | None:
     return _last_report
 
 
-async def _timed_check(name: str, fn) -> CheckResult:
+async def timed_check(name: str, fn) -> CheckResult:
     start = time.perf_counter()
     try:
         detail = await asyncio.to_thread(fn) if not asyncio.iscoroutinefunction(fn) else await fn()
@@ -74,7 +74,7 @@ async def _timed_check(name: str, fn) -> CheckResult:
         return CheckResult(name, False, str(exc)[:500], (time.perf_counter() - start) * 1000)
 
 
-def _warm_embedder() -> str:
+def warm_embedder() -> str:
     from app.embeddings.registry import get_embedder
 
     embedder = get_embedder()
@@ -105,7 +105,7 @@ def _warm_reranker() -> str:
     return f"{reranker.model_name} loaded"
 
 
-async def _check_ollama() -> str:
+async def check_ollama() -> str:
     settings = get_settings()
     async with httpx.AsyncClient(timeout=5.0) as client:
         resp = await client.get(f"{settings.ollama_base_url}/api/tags")
@@ -116,7 +116,7 @@ async def _check_ollama() -> str:
     return f"reachable, {len(models)} model(s): {', '.join(models)}"
 
 
-def _check_vector_store_write() -> str:
+def check_vector_store_write() -> str:
     import numpy as np
 
     from app.stores.vector.chroma_store import get_vector_store
@@ -143,12 +143,12 @@ async def run_preflight() -> PreflightReport:
     than "boots, reports what's wrong")."""
     global _last_report
     results = await asyncio.gather(
-        _timed_check("embedder", _warm_embedder),
-        _timed_check("pii_detector", _warm_pii_detector),
-        _timed_check("docling_parser", _warm_docling),
-        _timed_check("reranker", _warm_reranker),
-        _timed_check("ollama", _check_ollama),
-        _timed_check("vector_store", _check_vector_store_write),
+        timed_check("embedder", warm_embedder),
+        timed_check("pii_detector", _warm_pii_detector),
+        timed_check("docling_parser", _warm_docling),
+        timed_check("reranker", _warm_reranker),
+        timed_check("ollama", check_ollama),
+        timed_check("vector_store", check_vector_store_write),
     )
     report = PreflightReport(checks=list(results), ran_at=time.time())
     _last_report = report

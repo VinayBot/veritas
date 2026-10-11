@@ -23,6 +23,7 @@ from app.api.routes.profiler import router as profiler_router
 from app.api.routes.redteam import router as redteam_router
 from app.api.routes.reports import router as reports_router
 from app.api.routes.retrieval import router as retrieval_router
+from app.api.routes.test_center import router as test_center_router
 from app.api.routes.trace import router as trace_router
 from app.core.config import get_settings
 from app.core.db import init_db
@@ -94,4 +95,5 @@ app.include_router(redteam_router, prefix="/api/v1")
 app.include_router(profiler_router, prefix="/api/v1")
 app.include_router(evaluation_router, prefix="/api/v1")
 app.include_router(council_router, prefix="/api/v1")
+app.include_router(test_center_router, prefix="/api/v1")
 app.include_router(trace_router)  # /ws/trace/{session_id} — no /api/v1 prefix, per docs/API.md

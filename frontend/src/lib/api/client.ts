@@ -15,6 +15,7 @@ import {
   type RedTeamRunResponse,
   type ReportResponse,
   type SearchResponse,
+  type SelfTestResponse,
   type UploadResponse,
 } from './types'
 
@@ -216,5 +217,12 @@ export async function streamChat(
     }
   }
 }
+
+// ---- Test Center ----
+
+export const runSelfTest = () => request<SelfTestResponse>('/test-center/self-test')
+
+export const loadSampleDocument = () =>
+  request<UploadResponse>('/test-center/load-sample', { method: 'POST' })
 
 export { ApiError }
