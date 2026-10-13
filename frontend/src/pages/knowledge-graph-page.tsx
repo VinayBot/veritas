@@ -1,24 +1,21 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import ForceGraph2D from 'react-force-graph-2d'
-import { Search } from 'lucide-react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
+import { Search, Sparkles } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { StateMessage, type ComponentStatus } from '@/components/ui/state-message'
 import { useAppStore } from '@/store/app-store'
 import { useDocumentStatus } from '@/hooks/useDocumentStatus'
 import { getGraph, ApiError } from '@/lib/api/client'
-import type { GraphNode } from '@/lib/api/types'
+import type { GraphEdge, GraphNode } from '@/lib/api/types'
 
-const COMMUNITY_COLORS = [
-  '#8b5cf6',
-  '#34d399',
-  '#fbbf24',
-  '#f87171',
-  '#60a5fa',
-  '#f472b6',
-  '#2dd4bf',
-  '#fb923c',
-]
+const KnowledgeGraphCanvas = lazy(() =>
+  // The three.js chunk (and its own, separately heavy dependency) only loads once this
+  // page's graph panel actually mounts (KG-8) — not on every app bundle load.
+  import('@/components/knowledge-graph/KnowledgeGraphCanvas').then((m) => ({
+    default: m.KnowledgeGraphCanvas,
+  })),
+)
 
 export function KnowledgeGraphPage() {
   const { documentId } = useAppStore()
@@ -26,10 +23,13 @@ export function KnowledgeGraphPage() {
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<ComponentStatus>('loading')
   const [nodes, setNodes] = useState<GraphNode[]>([])
-  const [links, setLinks] = useState<{ source: string; target: string; predicate: string | null }[]>(
-    [],
-  )
-  const [selected, setSelected] = useState<GraphNode | null>(null)
+  const [edges, setEdges] = useState<GraphEdge[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+
+  const [askQuestion, setAskQuestion] = useState('')
+  const [asking, setAsking] = useState(false)
+  const [highlightSequence, setHighlightSequence] = useState<string[] | undefined>(undefined)
+  const [highlightStep, setHighlightStep] = useState<string | null>(null)
 
   const load = useCallback(async (q?: string) => {
     if (!documentId) return
@@ -37,9 +37,7 @@ export function KnowledgeGraphPage() {
     try {
       const data = await getGraph(documentId, q, 2)
       setNodes(data.nodes)
-      setLinks(
-        data.edges.map((e) => ({ source: e.source, target: e.target, predicate: e.predicate })),
-      )
+      setEdges(data.edges)
       setStatus(data.nodes.length === 0 ? 'empty' : 'success')
     } catch (err) {
       setStatus('error')
@@ -55,13 +53,32 @@ export function KnowledgeGraphPage() {
     void load()
   }, [load, doc?.enrichment_status])
 
-  const graphData = useMemo(
-    () => ({
-      nodes: nodes.map((n) => ({ ...n })),
-      links: links.map((l) => ({ ...l })),
-    }),
-    [nodes, links],
-  )
+  const selectedNode = useMemo(() => nodes.find((n) => n.id === selectedId) ?? null, [nodes, selectedId])
+
+  // KG-5: "Ask the graph" runs the EXISTING graph-mode query (GET /graph/{id}?query=...) —
+  // the same real traversal the search box below already uses — then highlights its real
+  // linked entities and traversal-path nodes on the torus in sequence.
+  async function handleAskGraph(e: React.FormEvent) {
+    e.preventDefault()
+    if (!documentId || !askQuestion.trim()) return
+    setAsking(true)
+    setHighlightStep(null)
+    try {
+      const data = await getGraph(documentId, askQuestion, 2)
+      const linkedIds = (data.linked_entities ?? []).map((n) => n.id)
+      const pathIds = data.nodes.map((n) => n.id).filter((id) => !linkedIds.includes(id))
+      const sequence = [...linkedIds, ...pathIds]
+      if (sequence.length === 0) {
+        setHighlightSequence(undefined)
+      } else {
+        setHighlightSequence(sequence)
+      }
+    } catch (err) {
+      if (err instanceof ApiError) console.error(err.message)
+    } finally {
+      setAsking(false)
+    }
+  }
 
   if (!documentId) {
     return (
@@ -115,41 +132,68 @@ export function KnowledgeGraphPage() {
           <div className="absolute inset-0 flex items-center justify-center">
             <StateMessage
               status="empty"
-              description="No entities found for this document or query."
+              title="Ingest a document to grow the graph"
+              description="No entities found yet for this document or query."
             />
           </div>
         )}
         {status === 'success' && (
-          <ForceGraph2D
-            graphData={graphData}
-            nodeId="id"
-            nodeLabel={(n) => `${(n as GraphNode).name} (${(n as GraphNode).label})`}
-            nodeColor={(n) => {
-              const community = (n as GraphNode).community
-              return community === null || community === undefined
-                ? '#8d8aa3'
-                : COMMUNITY_COLORS[community % COMMUNITY_COLORS.length]
-            }}
-            linkLabel={(l) => (l as { predicate: string | null }).predicate ?? ''}
-            linkColor={() => 'rgba(141, 138, 163, 0.4)'}
-            backgroundColor="transparent"
-            onNodeClick={(n) => setSelected(n as GraphNode)}
-          />
+          <Suspense
+            fallback={
+              <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
+                Loading graph renderer...
+              </div>
+            }
+          >
+            <KnowledgeGraphCanvas
+              nodes={nodes}
+              edges={edges}
+              onSelectEntity={(entity) => setSelectedId(entity?.id ?? null)}
+              highlightSequence={highlightSequence}
+              onHighlightStep={setHighlightStep}
+            />
+          </Suspense>
+        )}
+
+        {status === 'success' && (
+          <form
+            onSubmit={(e) => void handleAskGraph(e)}
+            className="absolute top-3 left-1/2 flex w-full max-w-md -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface/95 px-3 py-1.5 shadow-md backdrop-blur"
+            data-testid="ask-the-graph-form"
+          >
+            <Sparkles className="size-4 shrink-0 text-accent" />
+            <input
+              value={askQuestion}
+              onChange={(e) => setAskQuestion(e.target.value)}
+              placeholder="Ask the graph..."
+              className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            />
+            <Button type="submit" size="sm" disabled={asking || !askQuestion.trim()}>
+              {asking ? 'Asking...' : 'Ask'}
+            </Button>
+          </form>
+        )}
+        {highlightStep && (
+          <p className="absolute top-14 left-1/2 -translate-x-1/2 rounded-full bg-surface/90 px-2.5 py-1 text-xs text-muted-foreground backdrop-blur">
+            Lighting up: {nodes.find((n) => n.id === highlightStep)?.name ?? highlightStep}
+          </p>
         )}
       </div>
 
-      {selected && (
+      {selectedNode && (
         <div className="rounded-lg border border-border bg-surface-raised p-4">
           <div className="mb-2 flex items-center gap-2">
-            <span className="font-medium text-foreground">{selected.name}</span>
-            <Badge variant="outline">{selected.label}</Badge>
-            {selected.community !== null && <Badge variant="glow">community {selected.community}</Badge>}
+            <span className="font-medium text-foreground">{selectedNode.name}</span>
+            <Badge variant="outline">{selectedNode.label}</Badge>
+            {selectedNode.community !== null && (
+              <Badge variant="glow">community {selectedNode.community}</Badge>
+            )}
           </div>
           <p className="text-xs text-muted-foreground">
-            Mentions: {selected.mentions.join(', ') || '—'}
+            Mentions: {selectedNode.mentions.join(', ') || '—'}
           </p>
           <p className="text-xs text-muted-foreground">
-            Appears in {selected.doc_ids.length} document{selected.doc_ids.length === 1 ? '' : 's'}
+            Appears in {selectedNode.doc_ids.length} document{selectedNode.doc_ids.length === 1 ? '' : 's'}
           </p>
         </div>
       )}
