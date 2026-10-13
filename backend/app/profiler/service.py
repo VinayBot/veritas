@@ -88,6 +88,7 @@ def _candidate_metrics_dict(result: CandidateResult) -> dict[str, Any]:
         "avg_latency_ms": result.avg_latency_ms,
         "index_size": result.index_size,
         "composite_score": result.composite_score,
+        "n_samples": result.n_samples,
     }
 
 

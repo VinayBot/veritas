@@ -41,3 +41,10 @@ class BenchmarkRunResponse(BaseModel):
     injection_block_rate: float
     pii_leak_count: int
     recommended_config: str | None
+
+
+class BenchmarkRunListResponse(BaseModel):
+    """Oldest-first run history for one document (EV-4's by-run chart, EV-3's delta vs the
+    previous run) — additive, read-only, built on the already-persisted BenchmarkRun rows."""
+
+    runs: list[BenchmarkRunResponse]

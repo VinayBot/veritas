@@ -23,6 +23,11 @@ def _advisor_response(document_id: str, row: AdvisorRecommendationRow) -> Adviso
     def _candidate(config: dict[str, Any], metrics: dict[str, Any]) -> CandidateResultOut:
         return CandidateResultOut.model_validate({**config, **metrics})
 
+    # row.candidates already holds every tournament candidate (app/profiler/service.py's
+    # candidate_result_out, same config+metrics shape as baseline/suggested) — it was always
+    # persisted, just never serialized to the API response until now (additive).
+    candidates = [CandidateResultOut.model_validate(c) for c in (row.candidates or [])]
+
     return AdvisorResponse(
         document_id=document_id,
         baseline=_candidate(row.baseline_config, row.baseline_metrics),
@@ -32,6 +37,7 @@ def _advisor_response(document_id: str, row: AdvisorRecommendationRow) -> Adviso
         suggested_mode=row.suggested_mode,
         mode_reason=row.mode_reason,
         decision=row.decision,
+        candidates=candidates,
     )
 
 

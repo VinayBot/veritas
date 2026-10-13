@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.api.schemas.evaluation import (
+    BenchmarkRunListResponse,
     BenchmarkRunResponse,
     ConfigResultOut,
     GenerateDatasetRequest,
@@ -12,8 +13,20 @@ from app.api.schemas.evaluation import (
 from app.core.errors import AppError
 from app.evaluation import service
 from app.evaluation.datasets import load_dataset
+from app.evaluation.models import BenchmarkRun
 
 router = APIRouter(tags=["evaluation"])
+
+
+def _benchmark_run_response(run: BenchmarkRun) -> BenchmarkRunResponse:
+    return BenchmarkRunResponse(
+        id=run.id,
+        document_id=run.document_id or "",
+        config_results=[ConfigResultOut.model_validate(r) for r in run.config_results],
+        injection_block_rate=run.production_recommendation.get("injection_block_rate", 0.0),
+        pii_leak_count=run.production_recommendation.get("pii_leak_count", 0),
+        recommended_config=run.production_recommendation.get("name"),
+    )
 
 
 @router.post(
@@ -49,14 +62,7 @@ async def run_benchmark_route(body: RunBenchmarkRequest) -> BenchmarkRunResponse
     except service.EvaluationError as exc:
         raise AppError(exc.code, exc.message, 422) from exc
 
-    return BenchmarkRunResponse(
-        id=run.id,
-        document_id=run.document_id or "",
-        config_results=[ConfigResultOut.model_validate(r) for r in run.config_results],
-        injection_block_rate=run.production_recommendation.get("injection_block_rate", 0.0),
-        pii_leak_count=run.production_recommendation.get("pii_leak_count", 0),
-        recommended_config=run.production_recommendation.get("name"),
-    )
+    return _benchmark_run_response(run)
 
 
 @router.get("/eval/benchmarks/{run_id}", response_model=BenchmarkRunResponse)
@@ -65,11 +71,10 @@ async def get_benchmark_route(run_id: str) -> BenchmarkRunResponse:
     if run is None:
         raise AppError("benchmark_not_found", f"No benchmark run with id {run_id}", 404)
 
-    return BenchmarkRunResponse(
-        id=run.id,
-        document_id=run.document_id or "",
-        config_results=[ConfigResultOut.model_validate(r) for r in run.config_results],
-        injection_block_rate=run.production_recommendation.get("injection_block_rate", 0.0),
-        pii_leak_count=run.production_recommendation.get("pii_leak_count", 0),
-        recommended_config=run.production_recommendation.get("name"),
-    )
+    return _benchmark_run_response(run)
+
+
+@router.get("/documents/{document_id}/eval/benchmarks", response_model=BenchmarkRunListResponse)
+async def list_benchmark_runs_route(document_id: str) -> BenchmarkRunListResponse:
+    runs = await service.list_benchmark_runs(document_id)
+    return BenchmarkRunListResponse(runs=[_benchmark_run_response(r) for r in runs])

@@ -7,6 +7,8 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
+from sqlalchemy import select
+
 from app.core.db import session_scope
 from app.evaluation.benchmark import BenchmarkReport, run_benchmark
 from app.evaluation.datasets import generate_dataset, save_dataset
@@ -82,3 +84,17 @@ async def run_and_save_benchmark(
 async def get_benchmark_run(run_id: str) -> BenchmarkRun | None:
     async with session_scope() as session:
         return await session.get(BenchmarkRun, run_id)
+
+
+async def list_benchmark_runs(document_id: str, limit: int = 20) -> list[BenchmarkRun]:
+    """Real run history for a document, oldest first — EV-4's "Retrieval quality by run"
+    chart and EV-3's "delta vs previous run" both need more than one run to mean anything, and
+    neither existed before this (only run-one/get-one-by-id did)."""
+    async with session_scope() as session:
+        result = await session.execute(
+            select(BenchmarkRun)
+            .where(BenchmarkRun.document_id == document_id)
+            .order_by(BenchmarkRun.created_at.asc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())

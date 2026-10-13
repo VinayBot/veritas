@@ -48,6 +48,7 @@ class CandidateResult:
     avg_latency_ms: float
     index_size: int
     composite_score: float
+    n_samples: int = 0
 
 
 def default_candidates() -> list[CandidateConfig]:
@@ -64,6 +65,20 @@ def default_candidates() -> list[CandidateConfig]:
         CandidateConfig("recursive_256", "recursive", {"size": 256, "overlap": 32}),
         CandidateConfig(
             "baseline_alt_llm", "recursive", {"size": 512, "overlap": 64}, llm_model=second_llm
+        ),
+        # The four strategies below previously existed in the registry (app/chunking/
+        # registry.py) and were individually unit-tested, but no real comparison in the app
+        # ever actually ran them — the Evaluation page's "one row per chunking strategy"
+        # table needs all 6 real strategies represented, not just the 2 the original 5
+        # candidates happened to cover (recursive, structure_aware). Additive: existing
+        # candidates/behavior above are unchanged.
+        CandidateConfig("fixed_512", "fixed", {"size": 512, "overlap": 64}),
+        CandidateConfig("sentence_window_5_3", "sentence_window", {"window": 5, "stride": 3}),
+        CandidateConfig("semantic_default", "semantic", {"threshold": 0.5, "max_size": 512}),
+        CandidateConfig(
+            "parent_child_default",
+            "parent_child",
+            {"parent_size": 1024, "parent_overlap": 100, "child_size": 256, "child_overlap": 32},
         ),
     ]
 
@@ -100,6 +115,7 @@ async def evaluate_candidate(
     accumulator = RetrievalMetricsAccumulator(k=5)
     latencies: list[float] = []
     faithfulness_scores: list[float] = []
+    n_samples = 0
 
     reranker = get_reranker() if config.rerank else None
 
@@ -147,6 +163,7 @@ async def evaluate_candidate(
         }
         accumulator.add(retrieved_ids, relevant_ids)
         latencies.append((time.perf_counter() - start) * 1000)
+        n_samples += 1
 
         if i < MAX_FAITHFULNESS_SAMPLES and retrieved_ids:
             context = "\n\n".join(retrieved_texts[cid] for cid in retrieved_ids)
@@ -176,6 +193,7 @@ async def evaluate_candidate(
         avg_latency_ms=avg_latency,
         index_size=len(candidate_chunks),
         composite_score=composite,
+        n_samples=n_samples,
     )
 
 

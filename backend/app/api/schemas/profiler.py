@@ -32,6 +32,7 @@ class CandidateResultOut(BaseModel):
     avg_latency_ms: float
     index_size: int
     composite_score: float
+    n_samples: int = 0
 
 
 class AdvisorResponse(BaseModel):
@@ -43,6 +44,10 @@ class AdvisorResponse(BaseModel):
     suggested_mode: str
     mode_reason: str
     decision: str | None
+    """Every tournament candidate (not just baseline/winner) — additive: existing callers
+    that only read baseline/suggested are unaffected. The Evaluation page's chunking-strategy
+    table uses this to show all 6 real strategies, not just 2."""
+    candidates: list[CandidateResultOut] = []
 
 
 class AdvisorDecisionRequest(BaseModel):

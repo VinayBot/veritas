@@ -3,6 +3,7 @@ import {
   type AdvisorResponse,
   type ArchitectureTopologyResponse,
   type AuditListResponse,
+  type BenchmarkRunListResponse,
   type BenchmarkRunResponse,
   type ChatMode,
   type CouncilRunResponse,
@@ -137,6 +138,9 @@ export const runBenchmark = (params: RunBenchmarkParams) =>
   json<BenchmarkRunResponse>('/eval/benchmarks/run', params)
 
 export const getBenchmark = (id: string) => request<BenchmarkRunResponse>(`/eval/benchmarks/${id}`)
+
+export const listBenchmarkRuns = (documentId: string) =>
+  request<BenchmarkRunListResponse>(`/documents/${documentId}/eval/benchmarks`)
 
 // ---- Audit / Red-team ----
 

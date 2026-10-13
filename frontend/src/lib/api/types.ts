@@ -262,6 +262,7 @@ export interface CandidateResultOut {
   avg_latency_ms: number
   index_size: number
   composite_score: number
+  n_samples: number
 }
 
 export interface AdvisorResponse {
@@ -273,6 +274,9 @@ export interface AdvisorResponse {
   suggested_mode: string
   mode_reason: string
   decision: 'accept' | 'ignore' | null
+  /** Every tournament candidate, not just baseline/winner — one per chunking strategy once
+   * default_candidates() covers all 6 (see backend/app/profiler/tournament.py). */
+  candidates: CandidateResultOut[]
 }
 
 // ---- Evaluation ----
@@ -305,6 +309,10 @@ export interface BenchmarkRunResponse {
   injection_block_rate: number
   pii_leak_count: number
   recommended_config: string | null
+}
+
+export interface BenchmarkRunListResponse {
+  runs: BenchmarkRunResponse[]
 }
 
 // ---- Audit ----
