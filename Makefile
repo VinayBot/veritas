@@ -1,4 +1,4 @@
-.PHONY: setup dev test lint format eval redteam models demo up down backend-dev frontend-dev backend-test frontend-test backend-lint frontend-lint
+.PHONY: setup dev test lint format eval redteam models doctor demo up down backend-dev frontend-dev backend-test frontend-test backend-lint frontend-lint
 
 # Some machines only have the standalone `docker-compose` binary, others only the `docker
 # compose` plugin — detected at runtime rather than hardcoding one and breaking on the other.
@@ -45,6 +45,13 @@ redteam:
 models:
 	cd backend && uv run python scripts/warm_models.py
 
+# Read-only — never downloads or modifies anything, unlike `make models`. Run this first when
+# something isn't working: Ollama reachability + which required models are actually pulled,
+# whether the optional cloud keys / required PII_VAULT_KEY are set, and whether the data
+# directory is writable.
+doctor:
+	cd backend && uv run python scripts/doctor.py
+
 # Deliberately narrow: real unfinished-work markers only. A broader word-match on "stub" or
 # "placeholder" would flag HTML `placeholder=` attributes and honest prose explaining a
 # *finished* design decision (e.g. "no stub here, see docs/DECISIONS.md") — false positives
@@ -57,7 +64,7 @@ no-stubs:
 		|| (echo "Found unfinished-work markers in production code (see above)." && exit 1)
 
 demo:
-	@echo "make demo: not yet implemented (lands once data/demo/ assets + a scripted walkthrough exist)."
+	cd backend && uv run python scripts/demo.py
 
 up:
 	$(DOCKER_COMPOSE) up --build
