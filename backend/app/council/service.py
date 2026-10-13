@@ -20,17 +20,20 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from app.agents.answer_style import AnswerStyle, style_for
 from app.agents.context_utils import UNTRUSTED_CONTEXT_SYSTEM_PROMPT
 from app.core.config import get_settings
 from app.core.db import session_scope
+from app.core.tracing import trace_bus
 from app.council.models import CouncilRun
 from app.llm.client import LlmUnavailableError, complete
 from app.llm.json_utils import extract_json_object
+from app.llm.models_config import get_model_config
 
 _MEMBER_PROMPT = (
     "Answer the question using ONLY the numbered context below. Cite sources inline using "
     "[1], [2], etc. If the context doesn't contain the answer, say you don't have enough "
-    "information rather than guessing.\n\n{context}\n\nQuestion: {query}\n\nAnswer:"
+    "information rather than guessing. {style}\n\n{context}\n\nQuestion: {query}\n\nAnswer:"
 )
 
 _PEER_REVIEW_PROMPT = (
@@ -45,7 +48,7 @@ _CHAIRMAN_PROMPT = (
     "{n} systems independently answered the same question below. Synthesize the single best "
     "answer: keep only claims that are well-supported by the context (claims multiple answers "
     "agree on are a good signal), use [n]-style citations matching the context numbering, and "
-    "drop anything unsupported.\n\nContext:\n{context}\n\nQuestion: {query}\n\n"
+    "drop anything unsupported. {style}\n\nContext:\n{context}\n\nQuestion: {query}\n\n"
     "{labeled_answers}\n\nSynthesized answer:"
 )
 
@@ -83,14 +86,16 @@ def _labels(n: int) -> list[str]:
     return list(string.ascii_uppercase[:n])
 
 
-async def _member_answer(model: str, label: str, query: str, context: str) -> MemberAnswer:
+async def _member_answer(
+    model: str, label: str, query: str, context: str, style: AnswerStyle
+) -> MemberAnswer:
     start = time.perf_counter()
     try:
         answer = await complete(
-            _MEMBER_PROMPT.format(context=context, query=query),
+            _MEMBER_PROMPT.format(context=context, query=query, style=style.instruction),
             model=model,
             system=UNTRUSTED_CONTEXT_SYSTEM_PROMPT,
-            max_tokens=400,
+            max_tokens=style.max_tokens,
             temperature=0.3,
         )
     except LlmUnavailableError:
@@ -106,10 +111,12 @@ async def _run_maybe_parallel(coros: list[Coroutine[Any, Any, Any]]) -> list[Any
     return list(await asyncio.gather(*coros))
 
 
-async def _generate_members(models: list[str], query: str, context: str) -> list[MemberAnswer]:
+async def _generate_members(
+    models: list[str], query: str, context: str, style: AnswerStyle
+) -> list[MemberAnswer]:
     labels = _labels(len(models))
     coros = [
-        _member_answer(model, label, query, context)
+        _member_answer(model, label, query, context, style)
         for model, label in zip(models, labels, strict=True)
     ]
     return await _run_maybe_parallel(coros)
@@ -170,20 +177,26 @@ def _agreement_score(peer_reviews: list[PeerReview], labels: list[str]) -> float
 
 
 async def _chairman_synthesize(
-    chairman_model: str, query: str, context: str, labels: list[str], answers: list[str]
+    chairman_model: str,
+    query: str,
+    context: str,
+    labels: list[str],
+    answers: list[str],
+    style: AnswerStyle,
 ) -> str:
     prompt = _CHAIRMAN_PROMPT.format(
         n=len(labels),
         context=context,
         query=query,
         labeled_answers=_format_labeled(labels, answers),
+        style=style.instruction,
     )
     try:
         return await complete(
             prompt,
             model=chairman_model,
             system=UNTRUSTED_CONTEXT_SYSTEM_PROMPT,
-            max_tokens=500,
+            max_tokens=style.max_tokens,
             temperature=0.2,
         )
     except LlmUnavailableError:
@@ -195,18 +208,26 @@ async def _chairman_synthesize(
         )
 
 
-async def run_council(session_id: str, query: str, context: str) -> CouncilResult:
-    settings = get_settings()
-    members = settings.council_model_list or [settings.default_llm_model]
-    chairman = settings.chairman_model
+async def run_council(
+    session_id: str, query: str, context: str, style: AnswerStyle | None = None
+) -> CouncilResult:
+    style = style or style_for(None)
+    config = get_model_config()
+    members = config.council or [config.generator]
+    chairman = config.chairman
 
-    member_answers = await _generate_members(members, query, context)
-    labels = [m.label for m in member_answers]
-    answers = [m.answer for m in member_answers]
+    async with trace_bus.stage(session_id, "council", from_stage="synthesizer") as h:
+        member_answers = await _generate_members(members, query, context, style)
+        labels = [m.label for m in member_answers]
+        answers = [m.answer for m in member_answers]
 
-    peer_reviews = await _peer_review_all(members, query, context, labels, answers)
-    agreement = _agreement_score(peer_reviews, labels)
-    final_answer = await _chairman_synthesize(chairman, query, context, labels, answers)
+        peer_reviews = await _peer_review_all(members, query, context, labels, answers)
+        agreement = _agreement_score(peer_reviews, labels)
+        final_answer = await _chairman_synthesize(chairman, query, context, labels, answers, style)
+        h.set_metric("members", members)
+        h.set_metric("chairman", chairman)
+        h.set_metric("agreement_score", agreement)
+        h.set_output(f"{len(members)} members, agreement {agreement:.2f}")
 
     result = CouncilResult(
         id=str(uuid.uuid4()),

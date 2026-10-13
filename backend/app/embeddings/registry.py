@@ -9,11 +9,11 @@ docs/DECISIONS.md.
 
 from __future__ import annotations
 
-from functools import lru_cache
+import threading
 
 import numpy as np
 
-from app.core.config import get_settings
+from app.core.inference_lock import run_exclusive
 
 CANDIDATE_MODELS = (
     "sentence-transformers/all-MiniLM-L6-v2",
@@ -33,20 +33,41 @@ class Embedder:
         dimension = self._model.get_embedding_dimension()
         if dimension is None:
             # Some custom (trust_remote_code) models don't report this upfront — infer it.
-            dimension = len(self._model.encode(["probe"], show_progress_bar=False)[0])
+            dimension = len(
+                run_exclusive(self._model.encode, ["probe"], show_progress_bar=False)[0]
+            )
         self.dimension: int = dimension
 
     def embed(self, texts: list[str]) -> np.ndarray:
         if not texts:
             return np.zeros((0, self.dimension), dtype=np.float32)
         return np.asarray(
-            self._model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
+            run_exclusive(
+                self._model.encode, texts, normalize_embeddings=True, show_progress_bar=False
+            )
         )
 
     def embed_one(self, text: str) -> np.ndarray:
         return self.embed([text])[0]
 
 
-@lru_cache(maxsize=3)
+_loaded: dict[str, Embedder] = {}
+_load_lock = threading.Lock()
+
+
 def get_embedder(model_name: str | None = None) -> Embedder:
-    return Embedder(model_name or get_settings().embedding_model)
+    """The embedder for `model_name`, or for the currently selected embedding model. Loaded
+    once per model and kept; switching models does not evict the previous one, so a re-index
+    can read with one and write with another."""
+    from app.llm.models_config import get_model_config
+
+    name = model_name or get_model_config().embedding
+    if name not in _loaded:
+        with _load_lock:
+            if name not in _loaded:
+                _loaded[name] = Embedder(name)
+    return _loaded[name]
+
+
+def loaded_embedder_names() -> list[str]:
+    return list(_loaded)

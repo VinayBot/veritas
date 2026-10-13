@@ -164,7 +164,12 @@ class NetworkXGraphStore:
                 "chunk_id": data.get("chunk_id"),
             }
             for u, v, data in self._graph.edges(data=True)
-            if u in node_ids and v in node_ids
+            if u in node_ids
+            and v in node_ids
+            # Entities are shared across documents, so two of this document's entities can
+            # also be linked by a relation read from a different one. That relation is not
+            # part of this document's graph.
+            and (doc_id is None or data.get("doc_id") in (None, doc_id))
         ]
         return {"nodes": nodes, "edges": edges}
 

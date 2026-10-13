@@ -100,7 +100,13 @@ async def _dedupe(items: list[EvalItem]) -> list[EvalItem]:
 async def generate_dataset(document_id: str, target_size: int = 20) -> list[EvalItem]:
     async with session_scope() as session:
         rows = (
-            (await session.execute(select(ChunkRow).where(ChunkRow.doc_id == document_id)))
+            (
+                await session.execute(
+                    select(ChunkRow).where(
+                        ChunkRow.doc_id == document_id, ChunkRow.variant == "default"
+                    )
+                )
+            )
             .scalars()
             .all()
         )

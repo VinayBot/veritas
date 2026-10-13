@@ -50,7 +50,7 @@ async def _profile_for(document_id: str) -> tuple[DocumentProfile, str]:
             "document_not_ready", f"Document {document_id} has not finished ingestion", 422
         )
     doc_profile = await profiler_service.profile(
-        document_id, doc.masked_text, doc.language, doc.ocr_confidence
+        document_id, doc.masked_text, doc.language, doc.ocr_confidence, doc.page_count
     )
     return doc_profile, doc.masked_text
 

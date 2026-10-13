@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from app.retrieval.hybrid import FusedHit
-from app.retrieval.reranker import CrossEncoderReranker
+from app.retrieval.reranker import get_reranker
 
 
 def test_reranker_scores_the_truly_relevant_passage_higher() -> None:
-    reranker = CrossEncoderReranker()
+    reranker = get_reranker()
     hits = [
         FusedHit(
             chunk_id="irrelevant",
@@ -25,4 +25,4 @@ def test_reranker_scores_the_truly_relevant_passage_higher() -> None:
 
 
 def test_reranker_handles_empty_hits() -> None:
-    assert CrossEncoderReranker().rerank("query", []) == []
+    assert get_reranker().rerank("query", []) == []

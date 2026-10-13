@@ -24,27 +24,37 @@ async def test_benchmark_runs_real_configs_and_scores_them(client: AsyncClient) 
     eval_items = await generate_dataset(document_id, target_size=5)
     assert eval_items
 
-    report = await run_benchmark(document_id, eval_items, configs=["bm25", "hybrid"])
+    report = await run_benchmark(document_id, eval_items, configs=["hybrid", "hybrid_rerank"])
     assert len(report.config_results) == 2
     for result in report.config_results:
-        assert result.n_samples > 0
-        assert 0.0 <= result.faithfulness <= 1.0
-        assert result.p95_latency_ms >= result.p50_latency_ms
+        assert result.skipped_reason is None
+        assert result.n_samples == len(eval_items)
+        assert result.p95_latency_ms >= result.p50_latency_ms > 0
+        # Every strategy really answered every question; nothing is scored on a stand-in.
+        assert len(result.samples) == result.n_samples
+        assert all(sample["answer"] for sample in result.samples)
+        # A mean exists exactly when at least one sample was judged — never a default.
+        for metric, key in (("faithfulness", "faithfulness"), ("correctness", "correctness")):
+            value = getattr(result, metric)
+            assert (value is None) == (result.n_judged[key] == 0)
+            if value is not None:
+                assert 0.0 <= value <= 1.0
+        assert result.avg_llm_calls is not None and result.avg_llm_calls >= 1
 
     assert 0.0 <= report.injection_block_rate <= 1.0
     assert report.pii_leak_count == 0  # masking happens before indexing — verified, not assumed
 
     recommended = report.recommended_config()
     assert recommended is not None
-    assert recommended.name in {"bm25", "hybrid"}
+    assert recommended.name in {"hybrid", "hybrid_rerank"}
 
     markdown = render_markdown(report)
     assert "# Benchmarks" in markdown
     assert document_id in markdown
-    assert "bm25" in markdown and "hybrid" in markdown
+    assert "hybrid_rerank" in markdown and "| hybrid |" in markdown
 
 
-async def test_benchmark_runs_agentic_council_when_explicitly_requested(
+async def test_benchmark_runs_the_council_strategy_when_explicitly_requested(
     client: AsyncClient,
 ) -> None:
     content = (
@@ -58,7 +68,7 @@ async def test_benchmark_runs_agentic_council_when_explicitly_requested(
     await wait_for_document(client, document_id)
 
     # One hand-built item (skips generate_dataset's own LLM cost) — this test is specifically
-    # about agentic_council wiring real council synthesis into the benchmark path, not dataset
+    # about the council strategy wiring real council synthesis into the benchmark path, not dataset
     # generation, which test_benchmark_runs_real_configs_and_scores_them already covers.
     eval_items = [
         EvalItem(
@@ -70,10 +80,13 @@ async def test_benchmark_runs_agentic_council_when_explicitly_requested(
         )
     ]
 
-    report = await run_benchmark(document_id, eval_items, configs=["agentic_council"])
+    report = await run_benchmark(document_id, eval_items, configs=["council"], include_safety=False)
     assert len(report.config_results) == 1
     result = report.config_results[0]
-    assert result.name == "agentic_council"
+    assert result.name == "council"
     assert result.n_samples == 1
-    assert 0.0 <= result.faithfulness <= 1.0
-    assert 0.0 <= result.correctness <= 1.0
+    assert result.samples[0]["answer"]
+    assert result.correctness is None or 0.0 <= result.correctness <= 1.0
+    # The red-team suite was not part of this run, and the report says so rather than 0.
+    assert report.injection_block_rate is None
+    assert "red-team suite not run" in report.gate_failures(result)

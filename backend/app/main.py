@@ -12,6 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.agents.runs import reconcile_interrupted_runs
+from app.api.routes.analytics import router as analytics_router
 from app.api.routes.architecture import router as architecture_router
 from app.api.routes.audit import router as audit_router
 from app.api.routes.chat import router as chat_router
@@ -20,20 +21,24 @@ from app.api.routes.documents import router as documents_router
 from app.api.routes.evaluation import router as evaluation_router
 from app.api.routes.graph import router as graph_router
 from app.api.routes.health import router as health_router
+from app.api.routes.jobs import router as jobs_router
+from app.api.routes.models import router as models_router
 from app.api.routes.pii import router as pii_router
 from app.api.routes.profiler import router as profiler_router
+from app.api.routes.rag import router as rag_router
 from app.api.routes.redteam import router as redteam_router
 from app.api.routes.reports import router as reports_router
 from app.api.routes.retrieval import router as retrieval_router
 from app.api.routes.runs import router as runs_router
-from app.api.routes.test_center import router as test_center_router
 from app.api.routes.trace import router as trace_router
+from app.core import jobs, runtime_settings
 from app.core.config import get_settings
 from app.core.db import init_db
 from app.core.errors import AppError, app_error_handler, unhandled_error_handler
 from app.core.logging import configure_logging
 from app.core.preflight import PreflightReport, run_preflight
 from app.ingestion.service import reconcile_interrupted_jobs
+from app.stores.bm25 import rebuild_bm25_index
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -46,6 +51,7 @@ _preflight_task: asyncio.Task[PreflightReport] | None = None
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     global _preflight_task
     await init_db()
+    await runtime_settings.load()
 
     reconciled = await reconcile_interrupted_jobs()
     if reconciled:
@@ -62,6 +68,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "stopped and have no process left to finish them.",
             reconciled_runs,
         )
+
+    orphaned = await jobs.reconcile_orphaned_jobs()
+    if orphaned:
+        logger.warning("Marked %d background job(s) 'failed' — interrupted by a restart.", orphaned)
+
+    # Before anything can search: the keyword index is in-memory only (see app/stores/bm25.py).
+    await rebuild_bm25_index()
 
     # Deliberately NOT awaited: preflight can take minutes on a cold model cache (see
     # docs/TROUBLESHOOTING.md), and the server should start accepting connections — including
@@ -108,5 +121,8 @@ app.include_router(redteam_router, prefix="/api/v1")
 app.include_router(profiler_router, prefix="/api/v1")
 app.include_router(evaluation_router, prefix="/api/v1")
 app.include_router(council_router, prefix="/api/v1")
-app.include_router(test_center_router, prefix="/api/v1")
+app.include_router(jobs_router, prefix="/api/v1")
+app.include_router(rag_router, prefix="/api/v1")
+app.include_router(models_router, prefix="/api/v1")
+app.include_router(analytics_router, prefix="/api/v1")
 app.include_router(trace_router)  # /ws/trace/{session_id} — no /api/v1 prefix, per docs/API.md

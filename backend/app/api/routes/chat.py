@@ -20,41 +20,58 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from app.agents import runs
-from app.agents.orchestrator import VALID_MODES, run_chat_turn_tracked
+from app.agents.answer_style import DETAIL_LEVELS, resolve_detail
+from app.agents.orchestrator import cache_scope, run_chat_turn_tracked
 from app.api.schemas.chat import ChatRequest
+from app.rag_engines.registry import UnknownStrategyError, default_strategy_id, get_strategy
 from app.retrieval import semantic_cache
 
 router = APIRouter(tags=["chat"])
 
 
 def _sse(event: str, data) -> str:
-    # Deliberately the exact same wire format as before this fix (no SSE `id:` line yet) — the
-    # frontend's hand-rolled fetch+ReadableStream parser (frontend/src/lib/api/client.ts) was
-    # written against this shape, and changing it here without updating that parser in the same
-    # commit would break every live chat turn, not just the resume case this is building toward.
-    # Resume (app/api/routes/runs.py) tracks `seq` via its own JSON `data` payload instead of an
-    # SSE `id:` line — see docs/DECISIONS.md.
-    payload = data if isinstance(data, str) else json.dumps(data)
+    # Always JSON, including plain strings: an answer can contain a blank line, and a raw
+    # blank line inside `data:` would end the SSE frame early and drop the rest of the text.
+    payload = json.dumps(data)
     return f"event: {event}\ndata: {payload}\n\n"
 
 
-async def _stream_new_run(run_id: str, session_id: str, cache_hit: bool) -> AsyncIterator[str]:
-    yield _sse("session", {"run_id": run_id, "session_id": session_id, "cache_hit": cache_hit})
+async def _stream_new_run(
+    run_id: str, session_id: str, cache_hit: bool, strategy: str, detail: str
+) -> AsyncIterator[str]:
+    yield _sse(
+        "session",
+        {
+            "run_id": run_id,
+            "session_id": session_id,
+            "cache_hit": cache_hit,
+            "strategy": strategy,
+            "detail": detail,
+        },
+    )
     async for ev in runs.stream_run(run_id, after_seq=-1):
         yield _sse(ev.event, ev.data)
 
 
 @router.post("/chat")
 async def chat(body: ChatRequest) -> StreamingResponse:
-    if body.mode not in VALID_MODES:
+    strategy_id = body.strategy or default_strategy_id()
+    try:
+        get_strategy(strategy_id)
+    except UnknownStrategyError as exc:
+        return StreamingResponse(
+            iter([_sse("error", {"code": "invalid_strategy", "message": str(exc)})]),
+            media_type="text/event-stream",
+        )
+    if body.detail is not None and body.detail not in DETAIL_LEVELS:
         return StreamingResponse(
             iter(
                 [
                     _sse(
                         "error",
                         {
-                            "code": "invalid_chat_mode",
-                            "message": f"Unknown chat mode: {body.mode!r}. Valid: {VALID_MODES}",
+                            "code": "invalid_detail",
+                            "message": f"detail must be one of {DETAIL_LEVELS} or omitted",
                         },
                     )
                 ]
@@ -64,27 +81,28 @@ async def chat(body: ChatRequest) -> StreamingResponse:
 
     run_id = str(uuid.uuid4())
     session_id = body.session_id or str(uuid.uuid4())
-    # Looked up here (cheap: one embedding + a linear scan — see app/retrieval/semantic_cache.py)
-    # purely so the "session" event can report cache_hit immediately, matching what every
-    # existing caller (including the frontend) already expects to see right away rather than
-    # only once the full turn completes. run_chat_turn_tracked repeats this same lookup itself
-    # when the background task actually runs — a small, deliberate redundant read rather than
-    # threading a pre-fetched cache object through the tracked-run wrapper's signature.
-    cached = await semantic_cache.lookup(body.message, body.document_id, body.mode)
-    await runs.create_run(run_id, session_id, body.document_id, body.mode, body.message)
+    detail = resolve_detail(body.message, body.detail)
+    # Looked up here (cheap: one embedding + a linear scan) purely so the "session" event can
+    # report cache_hit immediately; the background task repeats the lookup when it runs.
+    cached = await semantic_cache.lookup(
+        body.message, body.document_id, cache_scope(strategy_id, detail)
+    )
+    await runs.create_run(run_id, session_id, body.document_id, strategy_id, body.message)
     runs.launch_run(
         run_id,
         run_chat_turn_tracked(
             run_id,
             body.message,
             body.document_id,
-            body.mode,
+            strategy_id,
             body.reveal_pii,
             session_id,
-            body.council,
+            body.detail,
         ),
     )
     return StreamingResponse(
-        _stream_new_run(run_id, session_id, cache_hit=cached is not None),
+        _stream_new_run(
+            run_id, session_id, cache_hit=cached is not None, strategy=strategy_id, detail=detail
+        ),
         media_type="text/event-stream",
     )

@@ -14,12 +14,15 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from app.agents import runs
+from app.rag_engines.registry import strategy_for_report
 
 router = APIRouter(tags=["chat"])
 
 
 def _sse(event: str, data, event_id: int | None = None) -> str:
-    payload = data if isinstance(data, str) else json.dumps(data)
+    # Always JSON, including plain strings: an answer can contain a blank line, and a raw
+    # blank line inside `data:` would end the SSE frame early and drop the rest of the text.
+    payload = json.dumps(data)
     id_line = f"id: {event_id}\n" if event_id is not None else ""
     return f"{id_line}event: {event}\ndata: {payload}\n\n"
 
@@ -33,7 +36,7 @@ async def get_run_status(run_id: str) -> dict:
         "id": run.id,
         "session_id": run.session_id,
         "document_id": run.document_id,
-        "mode": run.mode,
+        "strategy": strategy_for_report(None, run.mode),
         "query": run.query,
         "status": run.status,
         "stage": run.stage,

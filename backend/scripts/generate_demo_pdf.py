@@ -43,7 +43,9 @@ def timeline_drawing() -> Drawing:
     width, height = 500, 160
     d = Drawing(width, height)
     axis_y = height / 2
-    d.add(Line(20, axis_y, width - 20, axis_y, strokeColor=colors.HexColor("#3DB8A9"), strokeWidth=2))
+    d.add(
+        Line(20, axis_y, width - 20, axis_y, strokeColor=colors.HexColor("#3DB8A9"), strokeWidth=2)
+    )
     step = (width - 40) / (len(events) - 1)
     for i, (year, label) in enumerate(events):
         x = 20 + i * step
@@ -51,7 +53,16 @@ def timeline_drawing() -> Drawing:
         y_label = axis_y + 15 if i % 2 == 0 else axis_y - 30
         y_year = axis_y + 30 if i % 2 == 0 else axis_y - 15
         d.add(String(x, y_label, label, fontSize=8, textAnchor="middle"))
-        d.add(String(x, y_year, year, fontSize=9, textAnchor="middle", fillColor=colors.HexColor("#8B9299")))
+        d.add(
+            String(
+                x,
+                y_year,
+                year,
+                fontSize=9,
+                textAnchor="middle",
+                fillColor=colors.HexColor("#8B9299"),
+            )
+        )
     return d
 
 
@@ -136,18 +147,19 @@ def build() -> None:
             "simulate a person with paranoid schizophrenia, modeling beliefs, fears, and emotional "
             "responses rather than just reflecting language. In an early version of the Turing "
             "test, psychiatrists who read transcripts of PARRY's conversations could not reliably "
-            "distinguish them from transcripts of real paranoid patients. ELIZA and PARRY were even "
-            "connected to “talk” to each other over early computer networks.",
+            "distinguish them from transcripts of real paranoid patients. ELIZA and PARRY were "
+            "even connected to “talk” to each other over early computer networks.",
             body,
         )
     )
     story.append(
         Paragraph(
             "<b>A.L.I.C.E. (1995).</b> A.L.I.C.E. (the Artificial Linguistic Internet Computer "
-            "Entity) was created in 1995 by Richard Wallace. A.L.I.C.E. used an XML-based scripting "
-            "language called AIML (Artificial Intelligence Markup Language) to define thousands of "
-            "pattern-response templates, a major scaling improvement over ELIZA's hand-coded rules, "
-            "and won the Loebner Prize for the most human-like program multiple times.",
+            "Entity) was created in 1995 by Richard Wallace. A.L.I.C.E. used an XML-based "
+            "scripting language called AIML (Artificial Intelligence Markup "
+            "Language) to define thousands of "
+            "pattern-response templates, a major scaling improvement over ELIZA's hand-coded "
+            "rules, and won the Loebner Prize for the most human-like program multiple times.",
             body,
         )
     )
@@ -171,8 +183,9 @@ def build() -> None:
     )
     story.append(
         Paragraph(
-            "<b>Alexa (2014).</b> Amazon introduced Alexa in 2014 alongside the Echo smart speaker, "
-            "popularizing always-listening, voice-first chatbot assistants inside the home and "
+            "<b>Alexa (2014).</b> Amazon introduced Alexa in 2014 alongside the Echo smart "
+            "speaker, popularizing always-listening, voice-first chatbot "
+            "assistants inside the home and "
             "spawning a large ecosystem of third-party voice “skills.”",
             body,
         )
@@ -214,8 +227,7 @@ def build() -> None:
         ["Type", "How it decides a response", "Example"],
         [
             "Rule-based",
-            "Matches input against hand-written patterns or decision trees; no learning from "
-            "data.",
+            "Matches input against hand-written patterns or decision trees; no learning from data.",
             "ELIZA, early IVR phone trees",
         ],
         [

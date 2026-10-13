@@ -48,7 +48,9 @@ async def test_graph_endpoint_with_query_links_entities(client: AsyncClient) -> 
     assert nodes, "expected at least one real (non-PII) entity to survive in this fixture"
     probe_name = nodes[0]["name"]
 
-    graph_resp = await client.get(f"/api/v1/graph/{document_id}", params={"query": probe_name[:8]})
+    # The whole name, not a prefix: the store is shared with every other document in the
+    # corpus, and an 8-character prefix can link to a different document's entity first.
+    graph_resp = await client.get(f"/api/v1/graph/{document_id}", params={"query": probe_name})
     assert graph_resp.status_code == 200
     graph = graph_resp.json()
     assert graph["linked_entities"]

@@ -15,34 +15,55 @@ from app.privacy import vault
 from app.privacy.detector import detect
 from app.privacy.tokenizer import make_token
 from app.retrieval import service as retrieval_service
+from app.retrieval.hybrid import FusedHit
+
+
+def hit_to_dict(hit: FusedHit, default_source: str = "hybrid") -> dict:
+    """A search hit as the dict the agent and the report pass around, keeping why it was
+    found: which ranking(s) surfaced it and at what position."""
+    if hit.dense_rank is not None and hit.bm25_rank is not None:
+        found_by = "both"
+    elif hit.dense_rank is not None:
+        found_by = "dense"
+    elif hit.bm25_rank is not None:
+        found_by = "sparse"
+    else:
+        found_by = default_source
+    return {
+        "chunk_id": hit.chunk_id,
+        "text": hit.text,
+        "score": hit.rerank_score if hit.rerank_score is not None else hit.score,
+        "source": "hybrid",
+        "found_by": found_by,
+        "dense_rank": hit.dense_rank,
+        "sparse_rank": hit.bm25_rank,
+        "fusion_score": hit.score,
+        "rerank_score": hit.rerank_score,
+    }
 
 
 async def hybrid_search_tool(query_text: str, doc_id: str | None, k: int = 5) -> list[dict]:
     hits = await retrieval_service.search(
         query_text, k=k, doc_id=doc_id, mode="hybrid", rerank=True
     )
-    return [
-        {
-            "chunk_id": h.chunk_id,
-            "text": h.text,
-            "score": h.rerank_score if h.rerank_score is not None else h.score,
-            "source": "hybrid",
-        }
-        for h in hits
-    ]
+    return [hit_to_dict(h) for h in hits]
 
 
-async def graph_traverse_tool(query_text: str, hops: int = 2) -> list[dict]:
+async def graph_traverse_tool(
+    query_text: str, hops: int = 2, doc_id: str | None = None
+) -> list[dict]:
+    """Chunks reached by following relations from the entities the question mentions. With
+    `doc_id`, only that document's chunks are returned (the graph itself spans documents)."""
     result = graph_query(query_text, hops=hops)
     chunk_ids = {e["chunk_id"] for e in result["edges"] if e.get("chunk_id")}
 
     chunks_by_id: dict[str, str] = {}
     if chunk_ids:
         async with session_scope() as session:
-            rows = await session.execute(
-                select(ChunkRow.chunk_id, ChunkRow.text).where(ChunkRow.chunk_id.in_(chunk_ids))
-            )
-            chunks_by_id = dict(rows.all())
+            query = select(ChunkRow.chunk_id, ChunkRow.text).where(ChunkRow.chunk_id.in_(chunk_ids))
+            if doc_id:
+                query = query.where(ChunkRow.doc_id == doc_id)
+            chunks_by_id = dict((await session.execute(query)).all())
 
     hits: list[dict] = []
     seen: set[str] = set()
@@ -51,7 +72,13 @@ async def graph_traverse_tool(query_text: str, hops: int = 2) -> list[dict]:
         if cid and cid in chunks_by_id and cid not in seen:
             seen.add(cid)
             hits.append(
-                {"chunk_id": cid, "text": chunks_by_id[cid], "score": 0.5, "source": "graph"}
+                {
+                    "chunk_id": cid,
+                    "text": chunks_by_id[cid],
+                    "score": 0.5,
+                    "source": "graph",
+                    "found_by": "graph",
+                }
             )
 
     if not hits and result["linked_entities"]:
@@ -69,6 +96,7 @@ async def graph_traverse_tool(query_text: str, hops: int = 2) -> list[dict]:
                     "text": f"Graph relationships found: {path_desc}",
                     "score": 0.4,
                     "source": "graph",
+                    "found_by": "graph",
                 }
             )
 

@@ -20,16 +20,32 @@ class GuardVerdict:
         self.category = category
 
 
-async def classify(text: str, role: str = "user") -> GuardVerdict:
-    """`role` is "user" (classifying input) or "agent" (classifying the model's own output)."""
+# What stands in for the other side of the conversation when only one side is being checked.
+_NEUTRAL_USER_TURN = "Answer my question using the document."
+
+
+async def classify(text: str, role: str = "user", question: str | None = None) -> GuardVerdict:
+    """`role` is "user" (classifying input) or "agent" (classifying the model's own output).
+    `question` is what the answer was a reply to: the guard judges an answer in the context
+    of its question, and without the real one it misreads ordinary policy text as advice.
+
+    Llama Guard is trained on conversations rendered through its own chat template, which the
+    model server applies to real user/assistant turns. Wrapping the text in a hand-written
+    instruction instead makes it judge that instruction as the user message, and it then
+    flags ordinary answers as unsafe."""
     settings = get_settings()
-    prompt = (
-        f"Task: Check if there is unsafe content in the {role} message below.\n\n"
-        f"{role.capitalize()} message: {text}\n\n"
-        "Respond with 'safe' or 'unsafe'. If unsafe, add the violation category on a new line."
-    )
+    model = settings.guard_model
+    if model.startswith("ollama/"):
+        model = "ollama_chat/" + model.removeprefix("ollama/")  # the chat API applies the template
+    if role == "agent":
+        messages = [
+            {"role": "user", "content": question or _NEUTRAL_USER_TURN},
+            {"role": "assistant", "content": text},
+        ]
+    else:
+        messages = [{"role": "user", "content": text}]
     try:
-        raw = await complete(prompt, model=settings.guard_model, max_tokens=20, temperature=0.0)
+        raw = await complete("", model=model, max_tokens=20, temperature=0.0, messages=messages)
     except LlmUnavailableError:
         logger.info("Llama Guard unavailable, defaulting to safe for this signal")
         return GuardVerdict(is_safe=True)

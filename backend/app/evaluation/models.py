@@ -49,3 +49,43 @@ class BenchmarkRun(Base):
     config_results: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
     production_recommendation: Mapped[dict[str, Any]] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime)
+    # Provenance of the run. NULL on rows written by the first harness, whose numbers are not
+    # comparable with later ones (see app/evaluation/benchmark.py's module docstring).
+    harness_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dataset_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    dataset_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    n_items: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # {"judge", "generator", "embedding", "reranker", "chunking"} at the time of the run.
+    run_config: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    duration_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class StrategyEvaluation(Base):
+    """One strategy's measured result on one eval set over one state of the corpus — the
+    unit comparisons are assembled from, and the cache that keeps reopening a comparison from
+    re-running anything. `cache_key` covers everything that could change the numbers."""
+
+    __tablename__ = "strategy_evaluations"
+
+    cache_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    document_id: Mapped[str] = mapped_column(String(36), index=True)
+    strategy: Mapped[str] = mapped_column(String(32))
+    dataset_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    query: Mapped[str | None] = mapped_column(Text, nullable=True)
+    corpus_hash: Mapped[str] = mapped_column(String(64))
+    result: Mapped[dict[str, Any]] = mapped_column(JSON)
+    run_config: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class ComparisonRun(Base):
+    __tablename__ = "comparison_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    document_id: Mapped[str] = mapped_column(String(36), index=True)
+    dataset_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    query: Mapped[str | None] = mapped_column(Text, nullable=True)
+    strategies: Mapped[list[str]] = mapped_column(JSON)
+    baseline: Mapped[str] = mapped_column(String(32))
+    result: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime)

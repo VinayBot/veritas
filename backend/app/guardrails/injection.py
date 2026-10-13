@@ -9,6 +9,8 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 
+from app.core.inference_lock import run_exclusive
+
 MODEL_NAME = "protectai/deberta-v3-base-prompt-injection-v2"
 
 _INJECTION_PATTERNS = [
@@ -45,10 +47,14 @@ def _get_classifier():
     return pipeline("text-classification", model=MODEL_NAME)
 
 
+def classifier_loaded() -> bool:
+    return _get_classifier.cache_info().currsize > 0
+
+
 def classifier_scan(text: str) -> InjectionVerdict:
     try:
         classifier = _get_classifier()
-        result = classifier(text[:2000])[0]
+        result = run_exclusive(classifier, text[:2000])[0]
     except Exception:
         return InjectionVerdict(is_injection=False, score=0.0)
 

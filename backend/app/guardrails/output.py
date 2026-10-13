@@ -7,6 +7,7 @@ which have no dedicated Verifier step).
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -48,12 +49,18 @@ def _redact_pii(answer: str) -> tuple[str, int]:
     return redacted, len(detected)
 
 
+logger = logging.getLogger(__name__)
+
+_SOURCE_DEPENDENT_CATEGORIES = frozenset({"S5", "S6", "S7", "S8"})
+
+
 async def check_output(
     answer: str,
     citations: Sequence[Mapping[str, Any]],
     session_id: str,
     trace_id: str,
     reveal_pii: bool = False,
+    question: str | None = None,
 ) -> GuardrailResult:
     for pattern in _SECRET_PATTERNS:
         if pattern.search(answer):
@@ -82,7 +89,7 @@ async def check_output(
             )
             return result
 
-    guard_verdict = await llama_guard_classify(answer, role="agent")
+    guard_verdict = await llama_guard_classify(answer, role="agent", question=question)
     # S7 is Llama Guard's "Privacy" category — a context-free classifier, it has no idea
     # whether disclosing this PII was actually authorized. When reveal_pii is true, the vault
     # already made that call with real context Llama Guard lacks (session-level authorization),
@@ -90,7 +97,26 @@ async def check_output(
     # observed live: it flagged a legitimately-authorized "[email] is on file" answer as S7 at
     # reveal_pii=True, which is this exact false-positive case (see docs/DECISIONS.md).
     privacy_only = guard_verdict.category == "S7"
-    if not guard_verdict.is_safe and not (reveal_pii and privacy_only):
+    # Defamation (S5), specialised advice (S6), privacy (S7) and intellectual property (S8)
+    # are judgements about where a statement came from, which a context-free classifier
+    # cannot make: the small guard model raises them for ordinary sentences such as "travel
+    # over $5,000 needs the CFO's approval" or "the review is signed off by <name>". Answers
+    # here are written from the user's own retrieved document, the PII scan above has already
+    # run, and an answer with no citation is escalated by the check below — so these are
+    # logged for review instead of replacing the answer. Every other category — violence,
+    # crime, weapons, hate, self-harm, sexual content — still blocks.
+    category = (guard_verdict.category or "").strip().upper()[:3].rstrip(",. ")
+    sourced_statement = category in _SOURCE_DEPENDENT_CATEGORIES
+    if sourced_statement:
+        await audit_record(
+            trace_id, session_id, "output", "llama_guard_output", "escalate", excerpt=answer
+        )
+    if not guard_verdict.is_safe and not (reveal_pii and privacy_only) and not sourced_statement:
+        logger.warning(
+            "Output guard blocked an answer: category=%r citations=%d",
+            guard_verdict.category,
+            len(citations),
+        )
         result = GuardrailResult(
             "block",
             "llama_guard_output",

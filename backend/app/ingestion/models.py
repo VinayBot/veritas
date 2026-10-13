@@ -35,6 +35,11 @@ class Document(Base):
     fix_log: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     language: Mapped[str | None] = mapped_column(String(16), nullable=True)
     ocr_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Reported by the parser for paged formats; None for text, HTML and URLs.
+    page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Embedding model the working index was built with — what detects a stale index after
+    # the embedding model is changed.
+    embedding_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     pii_counts: Mapped[dict[str, int]] = mapped_column(JSON, default=dict)
     masked_text: Mapped[str | None] = mapped_column(Text, nullable=True)

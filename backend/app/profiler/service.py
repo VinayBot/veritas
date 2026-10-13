@@ -56,7 +56,11 @@ async def get_document_or_raise(document_id: str) -> Document:
 async def _chunk_count(document_id: str) -> int:
     async with session_scope() as session:
         rows = (
-            await session.execute(select(ChunkRow.chunk_id).where(ChunkRow.doc_id == document_id))
+            await session.execute(
+                select(ChunkRow.chunk_id).where(
+                    ChunkRow.doc_id == document_id, ChunkRow.variant == "default"
+                )
+            )
         ).all()
     return len(rows)
 
@@ -65,7 +69,9 @@ async def _ground_truth_map(document_id: str) -> dict[str, str]:
     async with session_scope() as session:
         rows = (
             await session.execute(
-                select(ChunkRow.chunk_id, ChunkRow.text).where(ChunkRow.doc_id == document_id)
+                select(ChunkRow.chunk_id, ChunkRow.text).where(
+                    ChunkRow.doc_id == document_id, ChunkRow.variant == "default"
+                )
             )
         ).all()
     return {chunk_id: text for chunk_id, text in rows}
@@ -97,9 +103,13 @@ def candidate_result_out(result: CandidateResult) -> dict[str, Any]:
 
 
 async def profile(
-    document_id: str, text: str, language: str | None, ocr_confidence: float | None
+    document_id: str,
+    text: str,
+    language: str | None,
+    ocr_confidence: float | None,
+    page_count: int | None = None,
 ) -> DocumentProfile:
-    return await profile_document(document_id, text, language, ocr_confidence)
+    return await profile_document(document_id, text, language, ocr_confidence, page_count)
 
 
 async def run_advisor(
@@ -184,7 +194,11 @@ async def _reindex_with_suggested_config(document_id: str, row: AdvisorRecommend
     )
 
     async with session_scope() as session:
-        await session.execute(delete(ChunkRow).where(ChunkRow.doc_id == document_id))
+        # Index variants are built from the same text and stay valid; only the working index
+        # is replaced.
+        await session.execute(
+            delete(ChunkRow).where(ChunkRow.doc_id == document_id, ChunkRow.variant == "default")
+        )
         await session.commit()
     get_vector_store().delete_by_doc(document_id)
     get_graph_store().remove_doc_edges(document_id)

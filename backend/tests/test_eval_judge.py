@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from app.evaluation.judge import (
     citation_validity,
     is_abstention,
@@ -67,3 +69,30 @@ async def test_correctness_matches_semantically_equivalent_phrasing() -> None:
         question="How much vacation do employees get?",
     )
     assert score >= 0.6
+
+
+async def test_an_unreachable_judge_yields_not_measured_never_a_made_up_score(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.evaluation import judge
+    from app.llm.client import LlmUnavailableError
+
+    async def unavailable(*_args: object, **_kwargs: object) -> str:
+        raise LlmUnavailableError("judge down")
+
+    monkeypatch.setattr(judge, "complete", unavailable)
+    assert await score_relevancy("An answer.", "A question?") is None
+    assert await score_correctness("An answer.", "Truth.", "A question?") is None
+    assert await score_faithfulness("An answer.", "Some context.") is None
+
+
+async def test_a_judge_reply_with_no_number_is_not_measured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.evaluation import judge
+
+    async def waffle(*_args: object, **_kwargs: object) -> str:
+        return "I think this answer is quite good overall."
+
+    monkeypatch.setattr(judge, "complete", waffle)
+    assert await score_relevancy("An answer.", "A question?") is None

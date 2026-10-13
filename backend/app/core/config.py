@@ -44,10 +44,15 @@ class Settings(BaseSettings):
     llm_provider: str = Field(default="ollama", alias="LLM_PROVIDER")
     ollama_base_url: str = Field(default="http://localhost:11434", alias="OLLAMA_BASE_URL")
     default_llm_model: str = Field(default="ollama/llama3.2:3b", alias="DEFAULT_LLM_MODEL")
-    council_models: str = Field(
-        default="ollama/qwen2.5:7b-instruct,ollama/gemma2:2b", alias="COUNCIL_MODELS"
-    )
+    council_models: str = Field(default="ollama/gemma2:2b,ollama/gemma3:4b", alias="COUNCIL_MODELS")
+    # Off by default: harder questions and the agent's grading steps stay on the one answer
+    # model instead of loading a second, larger one next to it. On a 16 GB machine two
+    # resident chat models plus the embedder and reranker is what pushes it into swap.
+    escalate_to_stronger_model: bool = Field(default=False, alias="ESCALATE_TO_STRONGER_MODEL")
     chairman_model: str = Field(default="ollama/llama3.2:3b", alias="CHAIRMAN_MODEL")
+    # Model that scores answers (faithfulness, relevancy, correctness). Empty = the default
+    # generator, which is how this project has always behaved.
+    judge_model: str = Field(default="", alias="JUDGE_MODEL")
     model_router_latency_budget_ms: int = Field(
         default=12_000, alias="MODEL_ROUTER_LATENCY_BUDGET_MS"
     )
@@ -100,7 +105,10 @@ class Settings(BaseSettings):
     run_timeout_seconds: float = Field(default=240.0, alias="RUN_TIMEOUT_SECONDS")
     run_retry_timeout_seconds: float = Field(default=90.0, alias="RUN_RETRY_TIMEOUT_SECONDS")
     max_llm_calls_per_run: int = Field(default=14, alias="MAX_LLM_CALLS_PER_RUN")
-    ollama_keep_alive: str = Field(default="30m", alias="OLLAMA_KEEP_ALIVE")
+    # How many requests are sent to the local model server at once. Ollama answers one at a
+    # time per model by default, so sending more only makes them time out while queued.
+    llm_max_concurrency: int = Field(default=1, alias="LLM_MAX_CONCURRENCY")
+    ollama_keep_alive: str = Field(default="10m", alias="OLLAMA_KEEP_ALIVE")
 
     @property
     def cors_origin_list(self) -> list[str]:

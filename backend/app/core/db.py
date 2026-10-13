@@ -62,8 +62,11 @@ _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
 
 
 async def init_db() -> None:
+    from app.core.migrate import add_missing_columns
+
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(add_missing_columns)
 
 
 @asynccontextmanager

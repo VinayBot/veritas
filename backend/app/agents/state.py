@@ -14,7 +14,7 @@ class RetrievedChunk(TypedDict):
     chunk_id: str
     text: str
     score: float
-    source: str  # "hybrid" | "graph"
+    source: str  # "hybrid" | "graph" | "pii_vault"
 
 
 class Citation(TypedDict):
@@ -35,6 +35,8 @@ class AgentState(TypedDict, total=False):
     # model (no council, no router escalation) and a tighter critic-retry cap, so the retry is
     # actually faster than the attempt that just timed out, not a second shot at the same cost.
     force_fast: bool
+    # "brief" (3-4 lines) or "deep" (7-8 lines) — see app/agents/answer_style.py.
+    detail: str
 
     category: str
     sub_questions: list[str]
@@ -67,6 +69,7 @@ def initial_state(
     reveal_pii: bool = False,
     council: bool = False,
     force_fast: bool = False,
+    detail: str = "brief",
 ) -> AgentState:
     return AgentState(
         session_id=session_id,
@@ -77,6 +80,7 @@ def initial_state(
         council_run_id=None,
         routing=None,
         force_fast=force_fast,
+        detail=detail,
         sub_questions=[],
         tools=[],
         retrieved=[],

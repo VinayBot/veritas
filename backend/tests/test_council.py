@@ -82,7 +82,7 @@ async def _upload_policy_doc(client: AsyncClient) -> str:
     return document_id
 
 
-async def test_chat_with_council_true_runs_the_real_council_and_links_the_report(
+async def test_chat_with_the_council_strategy_runs_the_real_council_and_links_the_report(
     client: AsyncClient,
 ) -> None:
     document_id = await _upload_policy_doc(client)
@@ -91,8 +91,7 @@ async def test_chat_with_council_true_runs_the_real_council_and_links_the_report
         json={
             "message": "How much vacation do employees get?",
             "document_id": document_id,
-            "mode": "hybrid",
-            "council": True,
+            "strategy": "council",
         },
     )
     assert resp.status_code == 200
@@ -104,9 +103,9 @@ async def test_chat_with_council_true_runs_the_real_council_and_links_the_report
         event_line, data_line = block.split("\n", 1)
         events.append((event_line.removeprefix("event: "), data_line.removeprefix("data: ")))
 
-    council_run_id = next((d for e, d in events if e == "council_run_id"), None)
-    assert council_run_id, "council=True must produce a council_run_id SSE event"
-    # Plain-string SSE payload (same convention as the "token" event) — not JSON-encoded.
+    raw_id = next((d for e, d in events if e == "council_run_id"), None)
+    council_run_id = json.loads(raw_id) if raw_id else None
+    assert council_run_id, "the council strategy must produce a council_run_id SSE event"
 
     done_data = json.loads(next(d for e, d in events if e == "done"))
     report_resp = await client.get(f"/api/v1/reports/{done_data['report_id']}")
@@ -128,8 +127,7 @@ async def test_chat_without_council_leaves_council_run_id_null(client: AsyncClie
         json={
             "message": "How much vacation do employees get?",
             "document_id": document_id,
-            "mode": "hybrid",
-            "council": False,
+            "strategy": "hybrid_rerank",
         },
     )
     events = []

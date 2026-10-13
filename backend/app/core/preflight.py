@@ -17,6 +17,7 @@ from pathlib import Path
 import httpx
 
 from app.core.config import get_settings
+from app.llm.models_config import get_model_config
 
 logger = logging.getLogger(__name__)
 
@@ -129,12 +130,9 @@ async def warm_ollama_models() -> str:
     if settings.llm_provider != "ollama":
         return "skipped — LLM_PROVIDER is not ollama"
 
-    configured = [
-        settings.default_llm_model,
-        settings.chairman_model,
-        settings.guard_model,
-        *settings.council_model_list,
-    ]
+    # Only what every question needs: the answer model and the small safety model. Council
+    # members load on demand — warming them all at once held ~11 GB on a 16 GB machine.
+    configured = [get_model_config().generator, settings.guard_model]
     models = sorted({m.removeprefix("ollama/") for m in configured if m.startswith("ollama/")})
     if not models:
         return "no ollama/-prefixed models configured"
@@ -170,9 +168,11 @@ def check_vector_store_write() -> str:
 
     store = get_vector_store()
     probe_id = "__preflight_probe__"
+    from app.embeddings.registry import get_embedder
+
     store.add(
         ids=[probe_id],
-        embeddings=np.zeros((1, 384), dtype=np.float32),
+        embeddings=np.zeros((1, get_embedder().dimension), dtype=np.float32),
         documents=["preflight probe"],
         metadatas=[
             {"doc_id": "__preflight__", "parent_id": "", "strategy": "", "section_path": ""}
@@ -182,6 +182,23 @@ def check_vector_store_write() -> str:
     return "chroma read/write ok"
 
 
+async def check_bm25_index() -> str:
+    """The BM25 index lives in memory and is otherwise only built during an ingest, so after a
+    restart keyword search would silently return nothing for every existing document."""
+    from app.stores.bm25 import get_bm25_index, rebuild_bm25_index
+
+    await rebuild_bm25_index()
+    return f"rebuilt from the chunks table ({get_bm25_index().size()} chunks)"
+
+
+def _warm_injection_classifier() -> str:
+    # Without this the first question of a session pays several seconds loading it.
+    from app.guardrails.injection import MODEL_NAME, classifier_scan
+
+    classifier_scan("What does the policy say about travel?")
+    return f"{MODEL_NAME} loaded"
+
+
 async def run_preflight() -> PreflightReport:
     """Runs every check concurrently (they're independent and each already offloads blocking
     work to a thread) and caches the report for /health to read. Never raises — a failed check
@@ -189,30 +206,20 @@ async def run_preflight() -> PreflightReport:
     at all (see docs/TROUBLESHOOTING.md on why "fails loud but doesn't boot" would be worse
     than "boots, reports what's wrong")."""
     global _last_report
-    # The embedder, Docling and reranker warm-ups all load/run PyTorch models on the GPU. On
-    # Apple Silicon (MPS) concurrent command-buffer submission from different threads aborts the
-    # whole process ("failed assertion _status < MTLCommandBufferStatusCommitted"), so these
-    # three are warmed one at a time. The remaining checks touch no GPU and still run
-    # concurrently alongside them.
-    gpu_bound = [
-        ("embedder", warm_embedder),
-        ("docling_parser", _warm_docling),
-        ("reranker", _warm_reranker),
-    ]
-
-    async def run_gpu_checks_serially() -> list[CheckResult]:
-        return [await timed_check(name, fn) for name, fn in gpu_bound]
-
-    gpu_results, other_results = await asyncio.gather(
-        run_gpu_checks_serially(),
-        asyncio.gather(
-            timed_check("pii_detector", _warm_pii_detector),
-            timed_check("ollama", check_ollama),
-            timed_check("ollama_models", warm_ollama_models),
-            timed_check("vector_store", check_vector_store_write),
-        ),
+    # Safe to run together: local model inference is serialized by
+    # app/core/inference_lock.py, so these never hit the GPU at the same moment.
+    results = await asyncio.gather(
+        timed_check("embedder", warm_embedder),
+        timed_check("pii_detector", _warm_pii_detector),
+        timed_check("docling_parser", _warm_docling),
+        timed_check("reranker", _warm_reranker),
+        timed_check("injection_classifier", _warm_injection_classifier),
+        timed_check("ollama", check_ollama),
+        timed_check("ollama_models", warm_ollama_models),
+        timed_check("vector_store", check_vector_store_write),
+        timed_check("bm25_index", check_bm25_index),
     )
-    report = PreflightReport(checks=[*gpu_results, *other_results], ran_at=time.time())
+    report = PreflightReport(checks=list(results), ran_at=time.time())
     _last_report = report
     for check in report.checks:
         level = logging.INFO if check.ok else logging.WARNING

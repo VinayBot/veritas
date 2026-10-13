@@ -109,3 +109,17 @@ def test_remove_doc_edges_drops_only_that_docs_relations(tmp_path) -> None:
 
     # idempotent — calling it again with nothing left to remove is a no-op, not an error.
     assert store.remove_doc_edges("doc-a") == 0
+
+
+def test_to_json_for_a_document_leaves_out_relations_read_from_other_documents(tmp_path) -> None:
+    """Two documents that mention the same pair of entities each contribute one relation. A
+    document's own graph holds its relation only, not one per copy in the corpus."""
+    store = NetworkXGraphStore(path=tmp_path / "graph.pickle")
+    for doc in ("doc-a", "doc-b"):
+        store.upsert_entity("e1", "ORG", "Acme", doc_id=doc, mentions=["Acme"])
+        store.upsert_entity("e2", "ORG", "Globex", doc_id=doc, mentions=["Globex"])
+        store.add_relation("e1", "e2", "partners_with", doc_id=doc, chunk_id=f"{doc}-c1")
+
+    assert len(store.to_json()["edges"]) == 2
+    scoped = store.to_json(doc_id="doc-a")
+    assert [e["doc_id"] for e in scoped["edges"]] == ["doc-a"]

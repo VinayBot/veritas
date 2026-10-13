@@ -10,9 +10,9 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from app.agents.state import MAX_CRITIC_LOOPS, AgentState, record_step
-from app.core.config import get_settings
 from app.core.tracing import trace_bus
 from app.llm.client import LlmUnavailableError, complete
+from app.llm.models_config import get_model_config
 
 SCORE_THRESHOLD = 0.3
 
@@ -45,12 +45,8 @@ async def _llm_grade(
     # (it only reached the chunk's opening paragraph), so the grading model judged the real,
     # relevant sentence it never saw as absent. See docs/TROUBLESHOOTING.md.
     context = "\n---\n".join(h["text"] for h in hits)
-    settings = get_settings()
-    grading_model = (
-        settings.default_llm_model
-        if force_fast
-        else (settings.council_model_list[0] if settings.council_model_list else None)
-    )
+    config = get_model_config()
+    grading_model = config.generator if force_fast else config.stronger_model()
     try:
         raw = await complete(
             _GRADE_PROMPT.format(context=context, query=query),

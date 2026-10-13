@@ -1,7 +1,8 @@
 """Advisor: turns the document profile and tournament results into a Baseline-vs-Suggested
 recommendation (with a rationale tied to *measured* profile features, not a generic template)
-plus a RAG-mode suggestion. Every number quoted in the rationale comes from the tournament's
-real metrics or the profiler's real features — nothing here is invented to sound plausible.
+plus the RAG strategy recommended for the document. Every number quoted in the rationale
+comes from the tournament's real metrics or the profiler's real features — nothing here is
+invented to sound plausible.
 """
 
 from __future__ import annotations
@@ -10,8 +11,7 @@ from dataclasses import dataclass
 
 from app.profiler.features import DocumentProfile
 from app.profiler.tournament import CandidateResult, TournamentResult
-
-RELATION_DENSITY_GRAPH_THRESHOLD = 2.0  # relations per 1000 tokens
+from app.rag_engines.advisor import recommend as recommend_strategy
 
 
 @dataclass
@@ -20,31 +20,11 @@ class AdvisorRecommendation:
     suggested: CandidateResult
     gain_ndcg_points: float
     rationale: list[str]
+    """The RAG strategy app/rag_engines/advisor.py recommends for this document, and its
+    leading reason — the chunking tournament and the strategy recommendation are shown
+    together, but they are computed independently."""
     suggested_mode: str
     mode_reason: str
-
-
-def recommend_mode(profile: DocumentProfile) -> tuple[str, str]:
-    if profile.relation_density >= RELATION_DENSITY_GRAPH_THRESHOLD:
-        return (
-            "graph",
-            f"High relation density ({profile.relation_density:.2f} relations per 1,000 "
-            "tokens, from the graph actually built at ingestion) suggests this document's "
-            "value is in the connections between entities.",
-        )
-    if profile.document_type == "faq" or (profile.heading_density < 0.02 and profile.tokens < 2000):
-        return (
-            "hybrid",
-            f"Short, lightly-structured content ({profile.tokens} tokens, "
-            f"{profile.heading_density:.1%} heading density) suggests simple hybrid search is "
-            "sufficient without the agentic loop's extra cost.",
-        )
-    return (
-        "agentic",
-        "No single strong structural signal (graph-dense or FAQ-simple) was measured, so "
-        "the general-purpose agentic pipeline — which can decompose multi-hop or comparison "
-        "questions on its own — is the safer default.",
-    )
 
 
 def _rationale_for_winner(
@@ -112,13 +92,13 @@ def build_recommendation(
         winner.retrieval_metrics.get("ndcg_at_5", 0.0)
         - baseline.retrieval_metrics.get("ndcg_at_5", 0.0)
     ) * 100
-    mode, mode_reason = recommend_mode(profile)
+    strategy = recommend_strategy(profile)
 
     return AdvisorRecommendation(
         baseline=baseline,
         suggested=winner,
         gain_ndcg_points=gain,
         rationale=_rationale_for_winner(profile, winner, baseline),
-        suggested_mode=mode,
-        mode_reason=mode_reason,
+        suggested_mode=strategy.recommended,
+        mode_reason=strategy.reasons[0],
     )

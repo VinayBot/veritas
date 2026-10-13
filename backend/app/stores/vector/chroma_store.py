@@ -4,7 +4,7 @@ Qdrant can be swapped in later via config (see docs/DECISIONS.md on why Qdrant i
 
 from __future__ import annotations
 
-from functools import lru_cache
+import threading
 from typing import Any, cast
 
 import numpy as np
@@ -13,19 +13,32 @@ from app.core.config import get_settings
 from app.stores.vector.base import VectorHit
 
 COLLECTION_NAME = "chunks"
+BASELINE_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
+
+def collection_for(embedding_model: str, variants: bool = False) -> str:
+    """Collection name for an embedding model. Vectors from different models have different
+    dimensions and meanings, so they never share a collection; index variants (alternative
+    chunkings) get their own too, so the working index is never touched by building one.
+    The baseline model keeps the original name, so existing data needs no migration."""
+    import re
+
+    base = COLLECTION_NAME
+    if embedding_model != BASELINE_EMBEDDING_MODEL:
+        slug = re.sub(r"[^a-zA-Z0-9]+", "-", embedding_model).strip("-").lower()[:40]
+        base = f"{COLLECTION_NAME}--{slug}"
+    return f"{base}--variants" if variants else base
 
 
 class ChromaVectorStore:
-    def __init__(self) -> None:
-        import chromadb
-
-        settings = get_settings()
-        persist_dir = settings.data_dir / "chroma"
-        persist_dir.mkdir(parents=True, exist_ok=True)
-        self._client = chromadb.PersistentClient(path=str(persist_dir))
-        self._collection = self._client.get_or_create_collection(
-            COLLECTION_NAME, metadata={"hnsw:space": "cosine"}
+    def __init__(self, client: Any, collection_name: str = COLLECTION_NAME) -> None:
+        self.collection_name = collection_name
+        self._collection = client.get_or_create_collection(
+            collection_name, metadata={"hnsw:space": "cosine"}
         )
+
+    def count(self) -> int:
+        return int(self._collection.count())
 
     def add(
         self,
@@ -70,6 +83,9 @@ class ChromaVectorStore:
     def delete_by_doc(self, doc_id: str) -> None:
         self._collection.delete(where={"doc_id": doc_id})
 
+    def delete_where(self, where: dict[str, Any]) -> None:
+        self._collection.delete(where=where)
+
     def get_embeddings(self, ids: list[str]) -> dict[str, np.ndarray]:
         """Reuses the exact vectors stored at index time, rather than re-embedding candidate
         text at query time (cheaper, and guaranteed consistent with what was indexed)."""
@@ -85,6 +101,42 @@ class ChromaVectorStore:
         }
 
 
-@lru_cache(maxsize=1)
-def get_vector_store() -> ChromaVectorStore:
-    return ChromaVectorStore()
+_client: Any = None
+_stores: dict[str, ChromaVectorStore] = {}
+_lock = threading.Lock()
+
+
+def get_vector_store(
+    embedding_model: str | None = None, variants: bool = False
+) -> ChromaVectorStore:
+    """The store for the active embedding model (or the one named). One client per process,
+    guarded by a lock because the first call can come from two worker threads at once
+    (startup warm-up and a health probe), and constructing two PersistentClients for the same
+    path concurrently fails inside chromadb."""
+    global _client
+    if embedding_model is None:
+        from app.llm.models_config import get_model_config
+
+        embedding_model = get_model_config().embedding
+    name = collection_for(embedding_model, variants)
+    if name not in _stores:
+        with _lock:
+            if _client is None:
+                import chromadb
+
+                persist_dir = get_settings().data_dir / "chroma"
+                persist_dir.mkdir(parents=True, exist_ok=True)
+                _client = chromadb.PersistentClient(path=str(persist_dir))
+            if name not in _stores:
+                _stores[name] = ChromaVectorStore(_client, name)
+    return _stores[name]
+
+
+def delete_document_everywhere(doc_id: str) -> None:
+    """Removes a document's vectors from every collection that exists (every embedding model
+    it was ever indexed with, working index and variants alike)."""
+    get_vector_store()  # make sure the client exists
+    for collection in _client.list_collections():
+        name = getattr(collection, "name", collection)
+        if str(name).startswith(COLLECTION_NAME):
+            _client.get_collection(str(name)).delete(where={"doc_id": doc_id})

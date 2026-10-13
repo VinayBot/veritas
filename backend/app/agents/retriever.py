@@ -39,7 +39,7 @@ async def retriever_node(state: AgentState) -> dict:
 
         if "graph_traverse" in tools:
             for sub_q in sub_questions:
-                for hit in await graph_traverse_tool(sub_q):
+                for hit in await graph_traverse_tool(sub_q, doc_id=doc_id):
                     all_hits.setdefault(hit["chunk_id"], hit)
 
         merged = sorted(all_hits.values(), key=lambda h: h["score"], reverse=True)[:10]

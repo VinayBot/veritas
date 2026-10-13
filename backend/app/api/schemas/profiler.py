@@ -2,23 +2,12 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+from app.profiler.features import DocumentProfile
 
-class ProfileResponse(BaseModel):
-    document_id: str
-    pages_estimated: int
-    tokens: int
-    language: str | None
-    heading_density: float
-    table_ratio: float
-    list_ratio: float
-    code_ratio: float
-    avg_sentence_length: float
-    avg_paragraph_length: float
-    duplication_ratio: float
-    ocr_confidence: float | None
-    entity_density: float
-    relation_density: float
-    document_type: str
+
+class ProfileResponse(DocumentProfile):
+    """Every measured feature of a document — see app/profiler/features.py for what each is
+    computed from."""
 
 
 class CandidateResultOut(BaseModel):

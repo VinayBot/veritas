@@ -66,6 +66,7 @@ async def guardian_out_node(state: AgentState) -> dict:
             state["session_id"],
             h.trace_id,
             reveal_pii=state.get("reveal_pii", False),
+            question=state.get("query"),
         )
         h.set_metric("decision", result.decision)
         h.set_metric("rule", result.rule)

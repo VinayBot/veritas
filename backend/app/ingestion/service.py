@@ -27,6 +27,8 @@ from app.ingestion.parsers.base import ParseError
 from app.ingestion.refiner import refine
 from app.ingestion.registry import parse_file, supported_extensions
 from app.ingestion.scraper import RobotsDisallowedError, ScrapeResult, SsrfBlockedError, scrape_url
+from app.llm import client as llm_client
+from app.llm.models_config import get_model_config
 from app.privacy.service import tokenize_text
 from app.profiler import service as profiler_service
 from app.retrieval.indexing import index_document
@@ -116,11 +118,25 @@ class _Cancelled(Exception):
     see cancel_ingestion()'s docstring on why this is cooperative, not pre-emptive."""
 
 
+async def _update_unless_cancelled(document_id: str, **fields: Any) -> bool:
+    """One atomic UPDATE that refuses to overwrite a cancellation. A separate read-then-write
+    lets a cancel land between the two and be silently replaced by "running" or "ready";
+    returns False when the document was cancelled (or no longer exists)."""
+    from sqlalchemy import update
+
+    async with session_scope() as session:
+        result = await session.execute(
+            update(Document)
+            .where(Document.id == document_id, Document.status != "cancelled")
+            .values(**fields, updated_at=datetime.now(UTC))
+        )
+        await session.commit()
+    return bool(getattr(result, "rowcount", 0))
+
+
 async def _mark_stage_running(document_id: str, stage: str) -> None:
-    doc = await get_document(document_id)
-    if doc is not None and doc.status == "cancelled":
+    if not await _update_unless_cancelled(document_id, status="running", current_stage=stage):
         raise _Cancelled()
-    await _update_document(document_id, status="running", current_stage=stage)
 
 
 async def _mark_failed(document_id: str, stage: str, exc: BaseException) -> None:
@@ -237,7 +253,7 @@ async def _run_critical_path(
         await _mark_failed(document_id, stage, exc)
         return None
 
-    await _update_document(
+    became_ready = await _update_unless_cancelled(
         document_id,
         status="ready",
         current_stage=None,
@@ -251,7 +267,10 @@ async def _run_critical_path(
         masked_text=tokenized.masked_text,
         chunk_count=len(chunks),
         chunk_strategy=chunks[0].strategy if chunks else None,
+        embedding_model=get_model_config().embedding,
     )
+    if not became_ready:
+        return None  # cancelled while the last stage was still running
     return chunks
 
 
@@ -266,7 +285,10 @@ async def _run_enrichment(
     and never load-bearing for whether the document can be chatted with. Runs after the
     critical path, with its own status field, so a slow/failed enrichment phase never leaves
     the document stuck un-chattable."""
+    llm_client.mark_background()  # graph extraction yields to anyone asking a question
     await _update_document(document_id, enrichment_status="running")
+    current = await get_document(document_id)
+    page_count = current.page_count if current else None
     try:
         stage = "graph"
         async with trace_bus.stage(
@@ -291,7 +313,9 @@ async def _run_enrichment(
             doc_profile = await _timed(
                 document_id,
                 stage,
-                profiler_service.profile(document_id, masked_text, language, ocr_confidence),
+                profiler_service.profile(
+                    document_id, masked_text, language, ocr_confidence, page_count
+                ),
             )
             h.set_metric("document_type", doc_profile.document_type)
             h.set_metric("tokens", doc_profile.tokens)
@@ -356,6 +380,8 @@ async def _run_pipeline(
                 parsed_text, ocr_confidence = parsed.text, parsed.ocr_confidence
                 h.set_metric("chars", len(parsed_text))
                 h.set_metric("pages", parsed.pages)
+                if parsed.pages:
+                    await _update_document(document_id, page_count=parsed.pages)
                 if not parsed_text.strip():
                     # Docling's own empty/corrupt/password-protected PDFs already raise
                     # ParseError from inside parse_file() (docling_parser.py) — but a plain
@@ -554,3 +580,91 @@ async def cancel_ingestion(document_id: str) -> None:
 async def get_document(document_id: str) -> Document | None:
     async with session_scope() as session:
         return await session.get(Document, document_id)
+
+
+_SAMPLE_DOCUMENT = (
+    Path(__file__).resolve().parents[3]
+    / "data"
+    / "demo"
+    / "northwind_remote_work_travel_policy.pdf"
+)
+
+
+async def ingest_sample() -> str:
+    if not _SAMPLE_DOCUMENT.exists():
+        raise IngestionError(
+            "sample_not_found", f"Bundled sample document not found at {_SAMPLE_DOCUMENT}"
+        )
+    return await ingest_upload(
+        _SAMPLE_DOCUMENT.name, _SAMPLE_DOCUMENT.read_bytes(), "application/pdf"
+    )
+
+
+async def list_documents(
+    status: str | None = None, limit: int = 50, offset: int = 0
+) -> tuple[list[Document], int]:
+    from sqlalchemy import func, select
+
+    async with session_scope() as session:
+        query = select(Document)
+        count_query = select(func.count()).select_from(Document)
+        if status:
+            query = query.where(Document.status == status)
+            count_query = count_query.where(Document.status == status)
+        total = (await session.execute(count_query)).scalar_one()
+        rows = (
+            (
+                await session.execute(
+                    query.order_by(Document.created_at.desc()).limit(limit).offset(offset)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    return list(rows), int(total)
+
+
+async def delete_document(document_id: str) -> dict[str, int]:
+    """Removes a document and everything derived from it: chunk rows, dense vectors, the
+    keyword index entries, graph edges, and the uploaded file. Entity nodes stay — they are
+    keyed by resolved name and may be shared with other documents. An in-flight ingestion is
+    refused rather than raced."""
+    import shutil
+
+    from sqlalchemy import delete, func, select
+
+    from app.chunking.models import ChunkRow
+    from app.stores.bm25 import rebuild_bm25_index
+    from app.stores.graph.networkx_store import get_graph_store
+    from app.stores.vector.chroma_store import delete_document_everywhere
+
+    doc = await get_document(document_id)
+    if doc is None:
+        raise IngestionError("document_not_found", f"No document with id {document_id}")
+    if doc.status in ("queued", "running") or doc.enrichment_status == "running":
+        raise IngestionError(
+            "delete_not_allowed",
+            "This document is still being ingested — cancel it or wait for it to finish first.",
+        )
+
+    async with session_scope() as session:
+        chunk_count = (
+            await session.execute(
+                select(func.count()).select_from(ChunkRow).where(ChunkRow.doc_id == document_id)
+            )
+        ).scalar_one()
+        await session.execute(delete(ChunkRow).where(ChunkRow.doc_id == document_id))
+        await session.execute(delete(Document).where(Document.id == document_id))
+        await session.commit()
+
+    delete_document_everywhere(document_id)
+    graph_store = get_graph_store()
+    edges_removed = graph_store.remove_doc_edges(document_id)
+    graph_store.save()
+    await rebuild_bm25_index()
+    shutil.rmtree(_uploads_dir() / document_id, ignore_errors=True)
+    return {"chunks_removed": int(chunk_count), "graph_edges_removed": edges_removed}
+
+
+async def set_graph_counts(document_id: str, entities: int, triples: int) -> None:
+    await _update_document(document_id, graph_entity_count=entities, graph_triple_count=triples)

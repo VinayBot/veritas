@@ -42,3 +42,29 @@ class DocumentResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class DocumentSummary(BaseModel):
+    id: str
+    filename: str
+    source_type: str
+    status: str
+    enrichment_status: str | None
+    chunk_count: int | None
+    chunk_strategy: str | None
+    graph_entity_count: int | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class DocumentListResponse(BaseModel):
+    documents: list[DocumentSummary]
+    total: int
+
+
+class DeleteDocumentResponse(BaseModel):
+    document_id: str
+    chunks_removed: int
+    graph_edges_removed: int

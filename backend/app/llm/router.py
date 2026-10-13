@@ -20,9 +20,11 @@ import time
 from dataclasses import dataclass
 
 from app.core.config import get_settings
-from app.llm.client import LlmUnavailableError, complete
+from app.llm.client import LlmUnavailableError, complete, stream_complete
+from app.llm.models_config import get_model_config
 
 SIMPLE_QUERY_MAX_WORDS = 12
+FALLBACK_TIMEOUT_SECONDS = 60.0
 _COMPLEXITY_KEYWORDS = (
     "compare",
     "comparison",
@@ -46,7 +48,7 @@ class RoutedCompletion:
 
 
 def select_primary_model(query: str) -> str:
-    settings = get_settings()
+    config = get_model_config()
     lowered = query.lower()
     is_complex = (
         len(query.split()) > SIMPLE_QUERY_MAX_WORDS
@@ -54,10 +56,8 @@ def select_primary_model(query: str) -> str:
         or any(kw in lowered for kw in _COMPLEXITY_KEYWORDS)
     )
     if not is_complex:
-        return settings.default_llm_model
-
-    stronger = [m for m in settings.council_model_list if m != settings.default_llm_model]
-    return stronger[0] if stronger else settings.default_llm_model
+        return config.generator
+    return config.stronger_model() or config.generator
 
 
 async def complete_with_latency_budget(
@@ -68,6 +68,7 @@ async def complete_with_latency_budget(
     max_tokens: int = 500,
     temperature: float = 0.2,
     force_primary_model: str | None = None,
+    stream: bool = False,
 ) -> RoutedCompletion:
     """`force_primary_model` skips the complexity-based pick below for a call that's always
     reasoning-sensitive regardless of how simple the original query looks — e.g. the
@@ -76,19 +77,33 @@ async def complete_with_latency_budget(
     would route as "simple"."""
     settings = get_settings()
     primary_model = force_primary_model or select_primary_model(query_for_routing)
-    fallback_model = settings.default_llm_model
+    fallback_model = get_model_config().generator
     budget_s = settings.model_router_latency_budget_ms / 1000
 
-    start = time.perf_counter()
-    try:
-        answer = await complete(
+    async def call(model: str, wait_s: float) -> str:
+        # Streaming: the budget is time to the first token, so a model that has started
+        # writing a long answer is not cut off mid-sentence.
+        if stream:
+            return await stream_complete(
+                prompt,
+                model=model,
+                system=system,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                first_token_timeout=wait_s,
+            )
+        return await complete(
             prompt,
-            model=primary_model,
+            model=model,
             system=system,
             max_tokens=max_tokens,
             temperature=temperature,
-            timeout=budget_s,
+            timeout=wait_s,
         )
+
+    start = time.perf_counter()
+    try:
+        answer = await call(primary_model, budget_s)
         return RoutedCompletion(
             answer=answer,
             primary_model=primary_model,
@@ -99,20 +114,13 @@ async def complete_with_latency_budget(
     except LlmUnavailableError:
         pass  # fall through to the backup model below — a real retry, not a canned outcome
 
-    if fallback_model == primary_model:
-        raise LlmUnavailableError(f"{primary_model} unavailable and is already the fallback")
-
-    answer = await complete(
-        prompt,
-        model=fallback_model,
-        system=system,
-        max_tokens=max_tokens,
-        temperature=temperature,
-    )
+    # The fast model missing the budget usually means it was still loading into memory, so
+    # it gets one more try with a full-length wait rather than no answer at all.
+    answer = await call(fallback_model, FALLBACK_TIMEOUT_SECONDS)
     return RoutedCompletion(
         answer=answer,
         primary_model=primary_model,
         model_used=fallback_model,
-        fell_back=True,
+        fell_back=fallback_model != primary_model,
         latency_ms=(time.perf_counter() - start) * 1000,
     )

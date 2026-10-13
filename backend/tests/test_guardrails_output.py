@@ -67,3 +67,30 @@ async def test_blocks_secret_leak_pattern() -> None:
     )
     assert result.decision == "block"
     assert result.rule == "secret_leak"
+
+
+async def test_source_dependent_guard_category_does_not_block_a_cited_answer(monkeypatch) -> None:
+    """S6 is the guard misreading document text; it is logged, not blocked. Without a citation
+    the answer is escalated by the missing-citation rule. A hard-harm category still blocks."""
+    from app.guardrails import output
+    from app.guardrails.llama_guard import GuardVerdict
+
+    verdict = {"category": "S6"}
+
+    async def fake_classify(text, role="user", question=None):  # noqa: ANN001, ARG001
+        return GuardVerdict(is_safe=False, category=verdict["category"])
+
+    monkeypatch.setattr(output, "llama_guard_classify", fake_classify)
+    cited = [{"marker": 1, "chunk_id": "c1", "text": "..."}]
+    answer = "Travel over five thousand dollars needs the CFO's approval. [1]"
+
+    allowed = await check_output(answer, cited, str(uuid.uuid4()), str(uuid.uuid4()))
+    assert allowed.decision != "block"
+    assert allowed.answer == answer
+
+    uncited = await check_output(answer, [], str(uuid.uuid4()), str(uuid.uuid4()))
+    assert (uncited.decision, uncited.rule) == ("escalate", "missing_citations")
+
+    verdict["category"] = "S1"
+    harmful = await check_output(answer, cited, str(uuid.uuid4()), str(uuid.uuid4()))
+    assert harmful.decision == "block"

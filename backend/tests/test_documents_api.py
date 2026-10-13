@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from conftest import wait_for_document
+from conftest import upload_and_wait_ready, wait_for_document, wait_for_enrichment
 from httpx import AsyncClient
 
 
@@ -56,3 +56,73 @@ async def test_pii_reveal_round_trip(client: AsyncClient) -> None:
     body = reveal_resp.json()
     assert body["revealed"][token] == "jane.reveal@example.com"
     assert body["not_found"] == []
+
+
+async def test_list_documents_returns_newest_first_with_total(client: AsyncClient) -> None:
+    first = await upload_and_wait_ready(
+        client, "list-a.md", b"# A\n\nAlpha content.", "text/markdown"
+    )
+    second = await upload_and_wait_ready(
+        client, "list-b.md", b"# B\n\nBeta content.", "text/markdown"
+    )
+
+    resp = await client.get("/api/v1/documents", params={"limit": 200})
+    assert resp.status_code == 200
+    body = resp.json()
+    ids = [d["id"] for d in body["documents"]]
+    assert body["total"] >= 2
+    assert ids.index(second["id"]) < ids.index(first["id"])
+    listed = next(d for d in body["documents"] if d["id"] == second["id"])
+    assert listed["filename"] == "list-b.md"
+    assert listed["status"] == "ready"
+    assert listed["chunk_count"] == second["chunk_count"]
+
+
+async def test_list_documents_filters_by_status(client: AsyncClient) -> None:
+    await upload_and_wait_ready(client, "filter.md", b"# F\n\nFilter me.", "text/markdown")
+    resp = await client.get("/api/v1/documents", params={"status": "ready", "limit": 200})
+    assert resp.status_code == 200
+    assert resp.json()["documents"]
+    assert all(d["status"] == "ready" for d in resp.json()["documents"])
+
+
+async def test_delete_document_removes_chunks_vectors_and_keyword_index(
+    client: AsyncClient,
+) -> None:
+    from app.embeddings.registry import get_embedder
+    from app.stores.bm25 import get_bm25_index
+    from app.stores.vector.chroma_store import get_vector_store
+
+    doc = await upload_and_wait_ready(
+        client,
+        "delete-me.md",
+        b"# Zeppelin Maintenance\n\nThe zeppelin hangar is inspected every quartz cycle.",
+        "text/markdown",
+    )
+    document_id = doc["id"]
+    await wait_for_enrichment(client, document_id)
+    assert get_bm25_index().search("zeppelin hangar", k=3, doc_id=document_id)
+
+    resp = await client.delete(f"/api/v1/documents/{document_id}")
+    assert resp.status_code == 200
+    assert resp.json()["chunks_removed"] == doc["chunk_count"]
+
+    assert (await client.get(f"/api/v1/documents/{document_id}")).status_code == 404
+    assert get_bm25_index().search("zeppelin hangar", k=3, doc_id=document_id) == []
+    query = get_embedder().embed_one("zeppelin hangar")
+    assert get_vector_store().query(query, k=3, where={"doc_id": document_id}) == []
+
+
+async def test_delete_unknown_document_is_404(client: AsyncClient) -> None:
+    resp = await client.delete("/api/v1/documents/does-not-exist")
+    assert resp.status_code == 404
+    assert resp.json()["code"] == "document_not_found"
+
+
+async def test_sample_document_goes_through_real_ingestion(client: AsyncClient) -> None:
+    resp = await client.post("/api/v1/documents/sample")
+    assert resp.status_code == 200
+    doc = await wait_for_document(client, resp.json()["document_id"], timeout=300.0)
+    assert doc["status"] == "ready"
+    assert doc["filename"] == "northwind_remote_work_travel_policy.pdf"
+    assert doc["chunk_count"] > 0

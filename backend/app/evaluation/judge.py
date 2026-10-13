@@ -1,4 +1,5 @@
-"""LLM-judge: scores generation quality on a 0-1 scale. Used both for the per-answer report
+"""LLM-judge: scores generation quality on a 0-1 scale, or returns None when a score could
+not be measured. Used both for the per-answer report
 (reference-free -> labelled "Estimated") and the benchmark runner (against synthetic-dataset
 ground truth -> labelled "Verified") — same scoring functions either way; the caller decides
 the label based on whether a ground-truth answer was available, not this module.
@@ -9,6 +10,7 @@ from __future__ import annotations
 import re
 
 from app.llm.client import LlmUnavailableError, complete
+from app.llm.models_config import get_model_config
 
 _SCORE_RE = re.compile(r"\d+(?:\.\d+)?")
 
@@ -43,28 +45,34 @@ _ABSTENTION_PHRASES = (
 _CITATION_MARKER_RE = re.compile(r"\[(\d+)\]")
 
 
-async def _score_0_to_10(prompt: str, fallback: float = 0.5) -> float:
+def judge_model() -> str:
+    return get_model_config().judge
+
+
+async def _score_0_to_10(prompt: str) -> float | None:
+    """None means "not measured": the judge model was unreachable or its reply contained no
+    number. Callers must carry that through — a made-up midpoint would look like a result."""
     try:
-        raw = await complete(prompt, max_tokens=10, temperature=0.0)
+        raw = await complete(prompt, model=judge_model(), max_tokens=10, temperature=0.0)
     except LlmUnavailableError:
-        return fallback
+        return None
     match = _SCORE_RE.search(raw)
     if not match:
-        return fallback
+        return None
     return max(0.0, min(1.0, float(match.group(0)) / 10))
 
 
-async def score_faithfulness(answer: str, context: str) -> float:
+async def score_faithfulness(answer: str, context: str) -> float | None:
     if is_abstention(answer):
         return 1.0  # correctly declining is maximally "faithful" — no unsupported claim made
     return await _score_0_to_10(_FAITHFULNESS_PROMPT.format(context=context, answer=answer))
 
 
-async def score_relevancy(answer: str, question: str) -> float:
+async def score_relevancy(answer: str, question: str) -> float | None:
     return await _score_0_to_10(_RELEVANCY_PROMPT.format(question=question, answer=answer))
 
 
-async def score_correctness(answer: str, ground_truth: str, question: str = "") -> float:
+async def score_correctness(answer: str, ground_truth: str, question: str = "") -> float | None:
     return await _score_0_to_10(
         _CORRECTNESS_PROMPT.format(question=question, ground_truth=ground_truth, answer=answer)
     )

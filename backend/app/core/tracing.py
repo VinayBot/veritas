@@ -8,11 +8,50 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from collections import deque
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from app.core.events import TraceEvent, TraceStatus
+
+_TERMINAL = (TraceStatus.DONE, TraceStatus.ERROR, TraceStatus.BLOCKED)
+STATS_WINDOW = 200
+RECENT_EVENTS_PER_STAGE = 10
+
+
+class StageStats:
+    """Rolling, in-memory figures for one stage name across every session since the process
+    started — what the Architecture tab shows per node. Nothing here survives a restart, and
+    the API says so ("since backend start") rather than implying a longer history."""
+
+    def __init__(self) -> None:
+        self.count = 0
+        self.errors = 0
+        self.blocked = 0
+        self.last_duration_ms: float | None = None
+        self.last_status: str | None = None
+        self.last_at: datetime | None = None
+        self.durations: deque[float] = deque(maxlen=STATS_WINDOW)
+
+    def percentile(self, p: float) -> float | None:
+        if not self.durations:
+            return None
+        ordered = sorted(self.durations)
+        return ordered[min(int(len(ordered) * p), len(ordered) - 1)]
+
+    def to_dict(self) -> dict:
+        return {
+            "invocation_count": self.count,
+            "error_count": self.errors,
+            "blocked_count": self.blocked,
+            "last_latency_ms": self.last_duration_ms,
+            "last_status": self.last_status,
+            "last_at": self.last_at.isoformat() if self.last_at else None,
+            "p50_latency_ms": self.percentile(0.5),
+            "p95_latency_ms": self.percentile(0.95),
+            "sample_size": len(self.durations),
+        }
 
 
 class TraceBus:
@@ -20,6 +59,42 @@ class TraceBus:
         self._subscribers: dict[str, list[asyncio.Queue[TraceEvent]]] = {}
         self._history: dict[str, list[TraceEvent]] = {}
         self._next_seq: dict[str, int] = {}
+        self._stats: dict[str, StageStats] = {}
+        self._recent: dict[str, deque[TraceEvent]] = {}
+        self.started_at = datetime.now(UTC)
+
+    def stage_stats(self) -> dict[str, StageStats]:
+        return dict(self._stats)
+
+    def recent_events(
+        self, stages: list[str], limit: int = RECENT_EVENTS_PER_STAGE
+    ) -> list[TraceEvent]:
+        """Newest first, across the given stage names."""
+        merged = [e for stage in stages for e in self._recent.get(stage, ())]
+        merged.sort(key=lambda e: e.started_at, reverse=True)
+        return merged[:limit]
+
+    def subscriber_count(self) -> int:
+        return sum(len(queues) for queues in self._subscribers.values())
+
+    def session_count(self) -> int:
+        return len(self._history)
+
+    def _record(self, event: TraceEvent) -> None:
+        if event.status not in _TERMINAL:
+            return
+        stats = self._stats.setdefault(event.stage, StageStats())
+        stats.count += 1
+        stats.last_status = str(event.status)
+        stats.last_at = datetime.now(UTC)
+        if event.status == TraceStatus.ERROR:
+            stats.errors += 1
+        if event.status == TraceStatus.BLOCKED:
+            stats.blocked += 1
+        if event.duration_ms is not None:
+            stats.last_duration_ms = event.duration_ms
+            stats.durations.append(event.duration_ms)
+        self._recent.setdefault(event.stage, deque(maxlen=RECENT_EVENTS_PER_STAGE)).append(event)
 
     def subscribe(self, session_id: str) -> asyncio.Queue[TraceEvent]:
         queue: asyncio.Queue[TraceEvent] = asyncio.Queue()
@@ -42,6 +117,7 @@ class TraceBus:
         self._next_seq[event.session_id] = seq + 1
         event.seq = seq
         self._history.setdefault(event.session_id, []).append(event)
+        self._record(event)
         for queue in self._subscribers.get(event.session_id, []):
             await queue.put(event)
 

@@ -2,13 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from app.agents import verifier as verifier_module
-from app.agents.verifier import (
-    _is_claim_grounded_in_answer,
-    _is_claim_grounded_in_context,
-    route_after_verifier,
-    verifier_node,
-)
+from app.agents.verifier import route_after_verifier, verifier_node
+from app.evaluation import grounding as grounding_module
+from app.evaluation.grounding import is_claim_in_answer, is_claim_in_context
 
 
 async def test_verifier_accepts_a_well_supported_answer() -> None:
@@ -146,13 +142,13 @@ async def test_verifier_accepts_a_multi_clause_sentence_copied_almost_verbatim()
 def test_claim_grounded_in_context_accepts_an_exact_quote() -> None:
     context = "Contractors based in Germany must obtain written exception before working remotely."
     claim = "Contractors based in Germany must obtain written exception before working remotely."
-    assert _is_claim_grounded_in_context(claim, context)
+    assert is_claim_in_context(claim, context)
 
 
 def test_claim_grounded_in_context_rejects_an_unrelated_claim() -> None:
     context = "Contractors based in Germany must obtain written exception before working remotely."
     claim = "The company offers unlimited vacation and a free car to every employee."
-    assert not _is_claim_grounded_in_context(claim, context)
+    assert not is_claim_in_context(claim, context)
 
 
 def test_route_after_verifier() -> None:
@@ -171,13 +167,13 @@ def test_claim_grounded_rejects_a_sentence_copied_from_context_not_the_answer() 
         "Home office stipends of a fixed annual amount are available to any employee who "
         "works remotely at least one day per week on a regular basis."
     )
-    assert _is_claim_grounded_in_answer(hallucinated_claim, answer) is False
+    assert is_claim_in_answer(hallucinated_claim, answer) is False
 
 
 def test_claim_grounded_accepts_a_claim_actually_quoted_from_the_answer() -> None:
     answer = "Employees get unlimited vacation and a free company car every year."
-    assert _is_claim_grounded_in_answer("Employees get unlimited vacation.", answer) is True
-    assert _is_claim_grounded_in_answer(answer, answer) is True
+    assert is_claim_in_answer("Employees get unlimited vacation.", answer) is True
+    assert is_claim_in_answer(answer, answer) is True
 
 
 async def test_verifier_discards_an_unsupported_claim_not_present_in_the_answer(
@@ -193,7 +189,7 @@ async def test_verifier_discards_an_unsupported_claim_not_present_in_the_answer(
             'who works remotely at least one day per week on a regular basis."]'
         )
 
-    monkeypatch.setattr(verifier_module, "complete", _fake_complete)
+    monkeypatch.setattr(grounding_module, "complete", _fake_complete)
 
     state = {
         "session_id": "s1",

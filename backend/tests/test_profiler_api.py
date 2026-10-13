@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from app.chunking.models import ChunkRow
 from app.core.db import session_scope
+from app.rag_engines.registry import STRATEGIES
 
 # Needs to clear MIN_CHUNKS_FOR_TOURNAMENT (3 baseline chunks, i.e. >1,024 tokens at the
 # baseline's size=512/overlap=64) with real margin — below that threshold the advisor is a
@@ -236,7 +237,7 @@ async def test_advisor_run_then_get_round_trip(client: AsyncClient) -> None:
     assert run_body["baseline"]["name"]
     assert run_body["suggested"]["name"]
     assert run_body["rationale"]
-    assert run_body["suggested_mode"] in ("graph", "hybrid", "agentic")
+    assert run_body["suggested_mode"] in STRATEGIES
     assert run_body["decision"] is None
 
     get_resp = await client.get(f"/api/v1/documents/{document_id}/advisor")
@@ -326,7 +327,7 @@ async def test_advisor_decision_accept_reindexes_with_suggested_config(
         json={
             "message": "How many vacation days do employees accrue per month?",
             "document_id": document_id,
-            "mode": "hybrid",
+            "strategy": "hybrid_rerank",
         },
     )
     assert chat_resp.status_code == 200

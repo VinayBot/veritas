@@ -33,14 +33,14 @@ async def _upload_policy_doc(client: AsyncClient) -> str:
     return document_id
 
 
-async def test_chat_hybrid_mode_end_to_end(client: AsyncClient) -> None:
+async def test_chat_hybrid_rerank_strategy_end_to_end(client: AsyncClient) -> None:
     document_id = await _upload_policy_doc(client)
     resp = await client.post(
         "/api/v1/chat",
         json={
             "message": "How much vacation do employees get?",
             "document_id": document_id,
-            "mode": "hybrid",
+            "strategy": "hybrid_rerank",
         },
     )
     assert resp.status_code == 200
@@ -56,11 +56,11 @@ async def test_chat_hybrid_mode_end_to_end(client: AsyncClient) -> None:
     report_resp = await client.get(f"/api/v1/reports/{done_data['report_id']}")
     assert report_resp.status_code == 200
     report = report_resp.json()
-    assert report["mode"] == "hybrid"
+    assert report["strategy"] == "hybrid_rerank"
     assert report["answer"]
 
 
-async def test_chat_graph_mode_end_to_end(client: AsyncClient) -> None:
+async def test_chat_graph_rag_strategy_end_to_end(client: AsyncClient) -> None:
     files = {
         "file": (
             "about.md",
@@ -74,21 +74,21 @@ async def test_chat_graph_mode_end_to_end(client: AsyncClient) -> None:
 
     resp = await client.post(
         "/api/v1/chat",
-        json={"message": "Emberwood Studios", "document_id": document_id, "mode": "graph"},
+        json={"message": "Emberwood Studios", "document_id": document_id, "strategy": "graph_rag"},
     )
     assert resp.status_code == 200
     events = _parse_sse(resp.text)
     assert any(e == "done" for e, _ in events)
 
 
-async def test_chat_agentic_mode_end_to_end(client: AsyncClient) -> None:
+async def test_chat_agentic_strategy_end_to_end(client: AsyncClient) -> None:
     document_id = await _upload_policy_doc(client)
     resp = await client.post(
         "/api/v1/chat",
         json={
             "message": "How much vacation do employees accrue per month?",
             "document_id": document_id,
-            "mode": "agentic",
+            "strategy": "agentic",
         },
     )
     assert resp.status_code == 200
@@ -101,8 +101,8 @@ async def test_chat_agentic_mode_end_to_end(client: AsyncClient) -> None:
     assert "synthesizer" in nodes
 
 
-async def test_chat_invalid_mode_returns_error_event(client: AsyncClient) -> None:
-    resp = await client.post("/api/v1/chat", json={"message": "hello", "mode": "nonsense"})
+async def test_chat_invalid_strategy_returns_error_event(client: AsyncClient) -> None:
+    resp = await client.post("/api/v1/chat", json={"message": "hello", "strategy": "nonsense"})
     assert (
         resp.status_code == 200
     )  # SSE streams always 200; the error is an event, not a status code
@@ -115,7 +115,7 @@ async def test_chat_second_identical_question_hits_semantic_cache(client: AsyncC
     body = {
         "message": "How much vacation do employees get per month?",
         "document_id": document_id,
-        "mode": "hybrid",
+        "strategy": "hybrid_rerank",
     }
     first = await client.post("/api/v1/chat", json=body)
     first_events = _parse_sse(first.text)
@@ -141,7 +141,7 @@ async def test_chat_response_carries_a_real_estimated_quality_report(client: Asy
         json={
             "message": "How much vacation do employees get?",
             "document_id": document_id,
-            "mode": "hybrid",
+            "strategy": "hybrid_rerank",
         },
     )
     events = _parse_sse(resp.text)
@@ -150,9 +150,12 @@ async def test_chat_response_carries_a_real_estimated_quality_report(client: Asy
     assert 0.0 <= quality["relevancy"] <= 1.0
     assert 0.0 <= quality["citation_validity"] <= 1.0
     assert 0.0 <= quality["confidence"] <= 1.0
+    assert quality["judge_model"]
     if quality["faithfulness"] is not None:
         assert 0.0 <= quality["faithfulness"] <= 1.0
 
     done_data = json.loads(next(d for e, d in events if e == "done"))
     report = await client.get(f"/api/v1/reports/{done_data['report_id']}")
-    assert report.json()["quality"] == quality
+    stored = report.json()["quality"]
+    # The stored report also carries the fields the event leaves out when they are empty.
+    assert {key: stored[key] for key in quality} == quality

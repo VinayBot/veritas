@@ -20,11 +20,11 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from app.chunking.registry import get_chunker
-from app.core.config import get_settings
 from app.embeddings.registry import get_embedder
 from app.evaluation.datasets import EvalItem
 from app.evaluation.judge import score_faithfulness
 from app.evaluation.metrics.retrieval import RetrievalMetricsAccumulator
+from app.llm.models_config import get_model_config
 from app.retrieval.reranker import get_reranker
 
 RELEVANCE_OVERLAP_THRESHOLD = 0.3
@@ -52,10 +52,7 @@ class CandidateResult:
 
 
 def default_candidates() -> list[CandidateConfig]:
-    settings = get_settings()
-    second_llm = next(
-        (m for m in [settings.default_llm_model, "ollama/qwen2.5:7b-instruct"] if m), None
-    )
+    second_llm = get_model_config().stronger_model()
     return [
         CandidateConfig("baseline", "recursive", {"size": 512, "overlap": 64}),
         CandidateConfig("structure_aware_384", "structure_aware", {"size": 384, "overlap": 40}),
@@ -167,7 +164,9 @@ async def evaluate_candidate(
 
         if i < MAX_FAITHFULNESS_SAMPLES and retrieved_ids:
             context = "\n\n".join(retrieved_texts[cid] for cid in retrieved_ids)
-            faithfulness_scores.append(await score_faithfulness(item.ground_truth_answer, context))
+            measured = await score_faithfulness(item.ground_truth_answer, context)
+            if measured is not None:
+                faithfulness_scores.append(measured)
 
     metrics = accumulator.summary()
     faithfulness = (

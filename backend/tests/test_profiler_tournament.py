@@ -4,9 +4,10 @@ from conftest import wait_for_document
 from httpx import AsyncClient
 
 from app.evaluation.datasets import generate_dataset
-from app.profiler.advisor import build_recommendation, recommend_mode
+from app.profiler.advisor import build_recommendation
 from app.profiler.features import profile_document
 from app.profiler.tournament import default_candidates, run_tournament
+from app.rag_engines.registry import STRATEGIES
 
 
 async def test_full_tournament_and_advisor_on_a_real_document(client: AsyncClient) -> None:
@@ -73,53 +74,5 @@ async def test_full_tournament_and_advisor_on_a_real_document(client: AsyncClien
     recommendation = build_recommendation(profile, tournament)
     assert recommendation is not None
     assert recommendation.rationale
-    assert recommendation.suggested_mode in ("hybrid", "graph", "agentic")
-
-
-def test_recommend_mode_graph_for_relation_dense_profile() -> None:
-    from app.profiler.features import DocumentProfile
-
-    profile = DocumentProfile(
-        document_id="d1",
-        pages_estimated=5,
-        tokens=2000,
-        language="en",
-        heading_density=0.05,
-        table_ratio=0.0,
-        list_ratio=0.0,
-        code_ratio=0.0,
-        avg_sentence_length=12,
-        avg_paragraph_length=40,
-        duplication_ratio=0.0,
-        ocr_confidence=None,
-        entity_density=10.0,
-        relation_density=5.0,  # above threshold
-        document_type="mixed",
-    )
-    mode, reason = recommend_mode(profile)
-    assert mode == "graph"
-    assert "relation density" in reason.lower()
-
-
-def test_recommend_mode_hybrid_for_short_simple_profile() -> None:
-    from app.profiler.features import DocumentProfile
-
-    profile = DocumentProfile(
-        document_id="d2",
-        pages_estimated=1,
-        tokens=500,
-        language="en",
-        heading_density=0.0,
-        table_ratio=0.0,
-        list_ratio=0.0,
-        code_ratio=0.0,
-        avg_sentence_length=10,
-        avg_paragraph_length=30,
-        duplication_ratio=0.0,
-        ocr_confidence=None,
-        entity_density=1.0,
-        relation_density=0.0,
-        document_type="faq",
-    )
-    mode, _ = recommend_mode(profile)
-    assert mode == "hybrid"
+    assert recommendation.suggested_mode in STRATEGIES
+    assert recommendation.mode_reason

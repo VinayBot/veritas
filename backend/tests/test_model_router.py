@@ -12,8 +12,19 @@ def test_select_primary_model_uses_fast_default_for_short_simple_queries() -> No
     assert select_primary_model("What is the vacation policy?") == settings.default_llm_model
 
 
-def test_select_primary_model_uses_a_stronger_model_for_comparison_queries() -> None:
+def test_select_primary_model_stays_on_one_model_by_default() -> None:
+    """Escalation is off unless asked for, so a second chat model is never loaded."""
     settings = get_settings()
+    assert settings.escalate_to_stronger_model is False
+    query = "What's the difference between the vacation policy and the remote work policy?"
+    assert select_primary_model(query) == settings.default_llm_model
+
+
+def test_select_primary_model_uses_a_stronger_model_for_comparison_queries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "escalate_to_stronger_model", True)
     stronger = select_primary_model(
         "What's the difference between the vacation policy and the remote work policy?"
     )
@@ -21,8 +32,11 @@ def test_select_primary_model_uses_a_stronger_model_for_comparison_queries() -> 
     assert stronger in settings.council_model_list
 
 
-def test_select_primary_model_uses_a_stronger_model_for_long_queries() -> None:
+def test_select_primary_model_uses_a_stronger_model_for_long_queries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     settings = get_settings()
+    monkeypatch.setattr(settings, "escalate_to_stronger_model", True)
     long_query = (
         "I would like to understand in detail how vacation accrual works for part-time "
         "employees who also take occasional unpaid leave during the calendar year"
@@ -64,6 +78,7 @@ async def test_complete_with_latency_budget_falls_back_when_primary_is_unavailab
     settings = get_settings()
     bogus_model = "ollama/this-model-does-not-exist:1b"
     monkeypatch.setattr(settings, "council_models", bogus_model)
+    monkeypatch.setattr(settings, "escalate_to_stronger_model", True)
 
     complex_query = (
         "Compare the vacation policy and the remote work policy — what's the difference "
@@ -92,6 +107,7 @@ async def test_complete_with_latency_budget_falls_back_when_primary_exceeds_the_
     one specifically needs primary and fallback to differ, so a real fallback happens."""
     settings = get_settings()
     monkeypatch.setattr(settings, "model_router_latency_budget_ms", 1)
+    monkeypatch.setattr(settings, "escalate_to_stronger_model", True)
     complex_query = (
         "Compare the vacation policy and the remote work policy — what's the difference "
         "between them?"

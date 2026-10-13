@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """`make eval`. Ingests the bundled demo document (or one given on the command line), runs the
-real multi-config benchmark against it (app/evaluation/benchmark.py), writes docs/BENCHMARKS.md
+real multi-strategy benchmark against it (app/evaluation/benchmark.py), writes docs/BENCHMARKS.md
 from that same real run, and exits non-zero if no config clears the hard gates (Section 11:
 faithfulness >= 0.85, injection block rate >= 95%, zero PII leaks, p95 latency <= 15s) — the
 same "at least one shippable config" bar run_redteam.py applies to the guardrail suite.
@@ -42,24 +42,33 @@ async def _wait_until_ready(document_id: str, timeout: float = 300.0) -> None:
         await asyncio.sleep(0.5)
 
 
+def _num(value: float | None) -> str:
+    return f"{value:.3f}" if value is not None else "n/m"
+
+
 def _print_report(report: BenchmarkReport) -> None:
     header = (
-        f"{'Config':<20} {'nDCG@5':>8} {'Faithful':>9} {'Correct':>8} "
-        f"{'p95(ms)':>9} {'Score':>7} Gate"
+        f"{'Strategy':<16} {'n':>3} {'nDCG@5':>7} {'Faithful':>9} {'Relevant':>9} "
+        f"{'Correct':>8} {'p95(ms)':>8} {'Score':>6} Gate"
     )
     print(header)
     for result in report.config_results:
-        score = report.production_score(result)
+        if result.skipped_reason:
+            print(f"{result.name:<16} skipped: {result.skipped_reason}")
+            continue
         gate = "PASS" if report.passes_hard_gates(result) else "fail"
         ndcg = result.retrieval_metrics.get("ndcg_at_5", 0.0)
-        line = (
-            f"{result.name:<20} {ndcg:>8.3f} {result.faithfulness:>9.3f} "
-            f"{result.correctness:>8.3f} {result.p95_latency_ms:>9.0f} {score:>7.3f} {gate}"
+        print(
+            f"{result.name:<16} {result.n_samples:>3} {ndcg:>7.3f} "
+            f"{_num(result.faithfulness):>9} {_num(result.answer_relevancy):>9} "
+            f"{_num(result.correctness):>8} {result.p95_latency_ms:>8.0f} "
+            f"{_num(report.production_score(result)):>6} {gate}"
         )
-        print(line)
+    print("(n/m = not measured: the judge gave no usable score)")
     print()
+    block = report.injection_block_rate
     print(
-        f"Safety: injection block rate {report.injection_block_rate:.1%}, "
+        f"Safety: injection block rate {f'{block:.1%}' if block is not None else 'not run'}, "
         f"PII leak count {report.pii_leak_count}"
     )
 
@@ -79,8 +88,10 @@ async def main() -> int:
         await _wait_until_ready(document_id)
         print("Ingestion ready.")
 
-    print("Running benchmark (dataset generation + all retrieval/agent configs + red-team)...")
-    _run, report = await run_and_save_benchmark(document_id, configs=None, dataset_target_size=10)
+    print("Running benchmark (eval set + every default strategy + red-team)...")
+    _run, report = await run_and_save_benchmark(
+        document_id, configs=None, dataset_target_size=10, write_doc=True
+    )
 
     print()
     _print_report(report)
@@ -91,7 +102,7 @@ async def main() -> int:
     if recommended is not None and passed:
         print(f"PASS — '{recommended.name}' clears every hard gate. docs/BENCHMARKS.md updated.")
     else:
-        print("FAIL — no config cleared every hard gate. See docs/BENCHMARKS.md for details.")
+        print("FAIL — no strategy cleared every hard gate. See docs/BENCHMARKS.md for details.")
     return 0 if passed else 1
 
 

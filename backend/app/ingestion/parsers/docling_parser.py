@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from app.core.inference_lock import run_exclusive
 from app.ingestion.parsers.base import ParsedDocument, ParseError
 
 if TYPE_CHECKING:
@@ -29,7 +30,7 @@ class DoclingParser:
     def parse(self, path: Path) -> ParsedDocument:
         converter = self._get_converter()
         try:
-            result = converter.convert(str(path))
+            result = run_exclusive(converter.convert, str(path))
         except Exception as exc:
             # Docling's own exception for every one of these cases (empty, corrupt, or
             # password-protected) is the same unhelpful, internal-hash-bearing message —

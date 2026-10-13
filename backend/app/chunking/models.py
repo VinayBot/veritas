@@ -24,5 +24,9 @@ class ChunkRow(Base):
     token_count: Mapped[int] = mapped_column(Integer, default=0)
     pii_token_count: Mapped[int] = mapped_column(Integer, default=0)
     strategy: Mapped[str] = mapped_column(String(32))
+    # Which index this chunk belongs to. "default" is the document's working chunk set; a
+    # RAG strategy that needs different chunking (fixed-size, semantic) builds its own
+    # variant alongside it — see app/rag_engines/variants.py.
+    variant: Mapped[str] = mapped_column(String(32), default="default", index=True)
     extra: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime)

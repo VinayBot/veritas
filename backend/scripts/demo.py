@@ -66,10 +66,13 @@ async def main() -> int:
         f"{doc.graph_triple_count} relations."
     )
 
-    print("\nRunning a fast real benchmark (bm25 + dense, not the full 6-config default)")
+    print("\nRunning a fast real benchmark (hybrid + hybrid_rerank, without the red-team suite)")
     print("to seed Evaluation's run history...")
     _run, report = await run_and_save_benchmark(
-        document_id, configs=["bm25", "dense"], dataset_target_size=6
+        document_id,
+        configs=["hybrid", "hybrid_rerank"],
+        dataset_target_size=6,
+        include_safety=False,
     )
     recommended = report.recommended_config()
     print(f"Benchmark done — recommended: {recommended.name if recommended else 'none'}")
@@ -90,9 +93,7 @@ async def main() -> int:
         print("Evaluation's table will stay empty for this doc.")
 
     print(f"\nDone. document_id={document_id}")
-    print("Open the Workspace tab and upload the same file (or any document) to explore it in")
-    print("the UI — the frontend doesn't persist a document selection across a fresh browser")
-    print("session, so this script seeds real backend/API data rather than the live UI state.")
+    print("Open the app and pick this document from the document switcher in the sidebar.")
     return 0
 
 

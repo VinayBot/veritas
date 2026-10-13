@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from fastapi import APIRouter, File, UploadFile
 
-from app.api.schemas.documents import DocumentResponse, UploadResponse, UrlIngestRequest
+from app.api.schemas.documents import (
+    DeleteDocumentResponse,
+    DocumentListResponse,
+    DocumentResponse,
+    DocumentSummary,
+    UploadResponse,
+    UrlIngestRequest,
+)
 from app.core.errors import AppError
 from app.ingestion import service
 
@@ -32,6 +39,40 @@ async def ingest_url(body: UrlIngestRequest) -> UploadResponse:
     except service.IngestionError as exc:
         raise AppError(exc.code, exc.message, 422) from exc
     return UploadResponse(document_id=document_id, job_id=document_id)
+
+
+@router.post("/documents/sample", response_model=UploadResponse)
+async def ingest_sample() -> UploadResponse:
+    """Ingests the bundled demo document through the same ingest_upload() path a real upload
+    takes — the Workspace's first-run "try the sample" action, not a parallel or mocked flow."""
+    try:
+        document_id = await service.ingest_sample()
+    except service.IngestionError as exc:
+        raise AppError(exc.code, exc.message, 500) from exc
+    return UploadResponse(document_id=document_id, job_id=document_id)
+
+
+@router.get("/documents", response_model=DocumentListResponse)
+async def list_documents(
+    status: str | None = None, limit: int = 50, offset: int = 0
+) -> DocumentListResponse:
+    """Newest first. `total` counts every document matching the filter, not just this page."""
+    docs, total = await service.list_documents(
+        status=status, limit=max(1, min(limit, 200)), offset=max(0, offset)
+    )
+    return DocumentListResponse(
+        documents=[DocumentSummary.model_validate(d) for d in docs], total=total
+    )
+
+
+@router.delete("/documents/{document_id}", response_model=DeleteDocumentResponse)
+async def delete_document(document_id: str) -> DeleteDocumentResponse:
+    try:
+        removed = await service.delete_document(document_id)
+    except service.IngestionError as exc:
+        status_code = 404 if exc.code == "document_not_found" else 422
+        raise AppError(exc.code, exc.message, status_code) from exc
+    return DeleteDocumentResponse(document_id=document_id, **removed)
 
 
 @router.get("/documents/{document_id}", response_model=DocumentResponse)

@@ -41,6 +41,9 @@ from app.core.tracing import trace_bus
 logger = logging.getLogger(__name__)
 
 POLL_INTERVAL_SECONDS = 0.3
+# How often an open answer stream looks for new frames; short, so tokens arrive as written.
+STREAM_POLL_SECONDS = 0.08
+_record_locks: dict[str, asyncio.Lock] = {}
 
 _STAGE_TO_STATUS: dict[str, str] = {
     "guardian_in": "planning",
@@ -54,6 +57,7 @@ _STAGE_TO_STATUS: dict[str, str] = {
     "verifier": "verifying",
     "guardian_out": "verifying",
     "semantic_cache": "generating",
+    "council": "generating",
     "retry": "generating",
 }
 
@@ -100,14 +104,19 @@ async def record_event(run_id: str, event: str, data: Any) -> int:
     """Persists one SSE frame's data and returns its seq. Does not itself yield SSE text —
     callers (chat.py's route, run_chat_turn_tracked) format and send that part; this only owns
     the durable record."""
-    seq = await _next_seq(run_id)
-    async with session_scope() as session:
-        session.add(
-            ChatRunEvent(
-                run_id=run_id, seq=seq, event=event, data=data, created_at=datetime.now(UTC)
+    # The stage relay and the token stream record concurrently; seq must stay unique.
+    lock = _record_locks.setdefault(run_id, asyncio.Lock())
+    async with lock:
+        seq = await _next_seq(run_id)
+        async with session_scope() as session:
+            session.add(
+                ChatRunEvent(
+                    run_id=run_id, seq=seq, event=event, data=data, created_at=datetime.now(UTC)
+                )
             )
-        )
-        await session.commit()
+            await session.commit()
+    if event in ("done", "error"):
+        _record_locks.pop(run_id, None)
     return seq
 
 
@@ -211,7 +220,7 @@ async def stream_run(run_id: str, after_seq: int = -1) -> AsyncIterator[ChatRunE
             # not happen at any real call site, but don't poll forever over a bug elsewhere).
             return
 
-        await asyncio.sleep(POLL_INTERVAL_SECONDS)
+        await asyncio.sleep(STREAM_POLL_SECONDS)
 
 
 async def reconcile_interrupted_runs() -> int:

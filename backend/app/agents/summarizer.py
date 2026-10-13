@@ -30,12 +30,14 @@ from __future__ import annotations
 
 import re
 
+from app.agents.answer_style import style_for
 from app.agents.context_utils import build_numbered_context
 from app.agents.state import AgentState, Citation, record_step
-from app.core.config import get_settings
+from app.agents.tools import hit_to_dict
 from app.core.tracing import trace_bus
 from app.guardrails.retrieval import scan_hits
 from app.llm.client import LlmUnavailableError, complete
+from app.llm.models_config import get_model_config
 from app.retrieval import service as retrieval_service
 
 _CITATION_MARKER_RE = re.compile(r"\[(\d+)\]")
@@ -54,7 +56,7 @@ _COMBINE_PROMPT = (
     "notes:\n{notes}\n\nNow write one complete, well-organized answer to the question using "
     "ONLY the numbered source excerpts below (the notes above may be incomplete — treat the "
     "excerpts as the real evidence) — cite inline using [1], [2], etc. matching the numbers "
-    "below.\n\n{context}\n\nFinal answer:"
+    "below. {style}\n\n{context}\n\nFinal answer:"
 )
 
 
@@ -62,7 +64,8 @@ async def summarizer_node(state: AgentState) -> dict:
     query = state["query"]
     doc_id = state.get("document_id")
     force_fast = state.get("force_fast", False)
-    settings = get_settings()
+    config = get_model_config()
+    style = style_for(state.get("detail"))
 
     async with trace_bus.stage(
         state["session_id"], "summarizer", from_stage="planner", to_stage="verifier"
@@ -75,10 +78,7 @@ async def summarizer_node(state: AgentState) -> dict:
             rerank=True,
             dedupe_strategy="mmr",
         )
-        hits: list[dict] = [
-            {"chunk_id": fh.chunk_id, "text": fh.text, "score": fh.score, "source": "hybrid"}
-            for fh in fused_hits
-        ]
+        hits: list[dict] = [hit_to_dict(fh) for fh in fused_hits]
         hits = await scan_hits(hits, state["session_id"], h.trace_id)
         h.set_metric("hit_count", len(hits))
 
@@ -111,9 +111,7 @@ async def summarizer_node(state: AgentState) -> dict:
 
         full_context = build_numbered_context(hits)
         combine_model = (
-            settings.default_llm_model
-            if force_fast
-            else (settings.council_model_list[0] if settings.council_model_list else None)
+            config.generator if force_fast or style.prefer_fast_model else config.stronger_model()
         )
         try:
             answer = await complete(
@@ -121,9 +119,10 @@ async def summarizer_node(state: AgentState) -> dict:
                     query=query,
                     notes="\n".join(f"- {n}" for n in notes) or "(none)",
                     context=full_context,
+                    style=style.instruction,
                 ),
                 model=combine_model,
-                max_tokens=600,
+                max_tokens=max(style.max_tokens, 220),
                 temperature=0.2,
             )
         except LlmUnavailableError:
