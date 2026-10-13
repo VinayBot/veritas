@@ -68,6 +68,8 @@ ENRICHMENT_STAGES = ("graph", "profile")
 # task created with create_task, so without this a task can be silently garbage-collected
 # mid-flight. Discarded automatically once the task finishes (success or failure).
 _background_tasks: set[asyncio.Task[None]] = set()
+# Enrichment (graph, profile) per document, so deleting a document can stop it first.
+_enrichment_tasks: dict[str, asyncio.Task[None]] = {}
 
 
 def _track(task: asyncio.Task[None]) -> None:
@@ -408,10 +410,10 @@ async def _run_pipeline(
     masked_text = doc.masked_text if doc else None
     language = doc.language if doc else None
     if masked_text is not None:
-        task = asyncio.ensure_future(
-            _run_enrichment(document_id, masked_text, language, ocr_confidence, chunks)
+        _start_enrichment(
+            document_id,
+            _run_enrichment(document_id, masked_text, language, ocr_confidence, chunks),
         )
-        _track(task)
 
 
 async def ingest_upload(filename: str, content: bytes, mime_type: str | None) -> str:
@@ -482,10 +484,10 @@ async def ingest_url(url: str, crawl_depth: int = 0) -> str:
 
         doc = await get_document(document_id)
         if doc and doc.masked_text is not None:
-            enrich_task = asyncio.ensure_future(
-                _run_enrichment(document_id, doc.masked_text, doc.language, None, chunks)
+            _start_enrichment(
+                document_id,
+                _run_enrichment(document_id, doc.masked_text, doc.language, None, chunks),
             )
-            _track(enrich_task)
 
     task = asyncio.ensure_future(_scrape_then_run())
     _track(task)
@@ -556,10 +558,29 @@ async def _retry_url(document_id: str, url: str) -> None:
 
     doc = await get_document(document_id)
     if doc and doc.masked_text is not None:
-        enrich_task = asyncio.ensure_future(
-            _run_enrichment(document_id, doc.masked_text, doc.language, None, chunks)
+        _start_enrichment(
+            document_id, _run_enrichment(document_id, doc.masked_text, doc.language, None, chunks)
         )
-        _track(enrich_task)
+
+
+def _start_enrichment(document_id: str, coro: Any) -> None:
+    task = asyncio.ensure_future(coro)
+    _enrichment_tasks[document_id] = task
+    task.add_done_callback(lambda _t: _enrichment_tasks.pop(document_id, None))
+    _track(task)
+
+
+async def stop_enrichment(document_id: str) -> bool:
+    """Stops a document's background graph and profile work. True if something was running."""
+    task = _enrichment_tasks.get(document_id)
+    if task is None or task.done():
+        return False
+    task.cancel()
+    try:
+        await task
+    except (asyncio.CancelledError, Exception):  # noqa: BLE001 — only that it has stopped
+        pass
+    return True
 
 
 async def cancel_ingestion(document_id: str) -> None:
@@ -626,7 +647,7 @@ async def delete_document(document_id: str) -> dict[str, int]:
     """Removes a document and everything derived from it: chunk rows, dense vectors, the
     keyword index entries, graph edges, and the uploaded file. Entity nodes stay — they are
     keyed by resolved name and may be shared with other documents. An in-flight ingestion is
-    refused rather than raced."""
+    refused rather than raced; background enrichment is stopped first."""
     import shutil
 
     from sqlalchemy import delete, func, select
@@ -639,11 +660,14 @@ async def delete_document(document_id: str) -> dict[str, int]:
     doc = await get_document(document_id)
     if doc is None:
         raise IngestionError("document_not_found", f"No document with id {document_id}")
-    if doc.status in ("queued", "running") or doc.enrichment_status == "running":
+    if doc.status in ("queued", "running"):
         raise IngestionError(
             "delete_not_allowed",
             "This document is still being ingested — cancel it or wait for it to finish first.",
         )
+    # Background graph and profile work is optional, so it is stopped rather than waited
+    # for: a document that is ready to chat with is also ready to delete.
+    await stop_enrichment(document_id)
 
     async with session_scope() as session:
         chunk_count = (

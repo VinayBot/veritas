@@ -160,3 +160,24 @@ async def test_changing_the_embedding_model_blocks_search_until_the_document_is_
     assert not any(d["id"] == doc["id"] for d in status["stale_documents"])
     answered = await client.post("/api/v1/chat", json=question)
     assert "event: token" in answered.text and "event: error" not in answered.text
+
+
+async def test_a_saved_choice_of_a_model_that_was_removed_falls_back_to_the_default(
+    client: AsyncClient,
+) -> None:
+    """`ollama rm` after choosing a model used to leave every answer failing with "model not
+    found". The saved choice is dropped and the configured default takes over."""
+    from app.core import runtime_settings
+    from app.core.config import get_settings
+
+    await runtime_settings.set_value("generator_model", "ollama/this-model-was-removed:7b")
+    await runtime_settings.set_value(
+        "council_models", ["ollama/this-model-was-removed:7b", get_settings().default_llm_model]
+    )
+    try:
+        state = (await client.get("/api/v1/models/local")).json()
+        assert state["selection"]["generator"] == get_settings().default_llm_model
+        assert state["selection"]["council"] == [get_settings().default_llm_model]
+    finally:
+        await runtime_settings.set_value("generator_model", None)
+        await runtime_settings.set_value("council_models", None)

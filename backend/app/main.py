@@ -38,6 +38,7 @@ from app.core.errors import AppError, app_error_handler, unhandled_error_handler
 from app.core.logging import configure_logging
 from app.core.preflight import PreflightReport, run_preflight
 from app.ingestion.service import reconcile_interrupted_jobs
+from app.llm.models_catalog import reconcile_selection
 from app.stores.bm25 import rebuild_bm25_index
 
 settings = get_settings()
@@ -52,6 +53,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     global _preflight_task
     await init_db()
     await runtime_settings.load()
+    dropped = await reconcile_selection()
+    if dropped:
+        logger.warning("Saved model choices no longer installed were reset: %s", dropped)
 
     reconciled = await reconcile_interrupted_jobs()
     if reconciled:

@@ -19,12 +19,16 @@ sys.path.insert(0, ".")
 
 from app.core.config import get_settings  # noqa: E402
 
-REQUIRED_OLLAMA_MODELS = [
-    "llama3.2:3b",
-    "qwen2.5:7b-instruct",
-    "gemma2:2b",
-    "llama-guard3:1b",
-]
+
+def _required_ollama_models() -> list[str]:
+    """Whatever this installation is configured to use, not a fixed list."""
+    from app.llm.models_config import get_model_config
+
+    names = [m.removeprefix("ollama/") for m in get_model_config().all_llm_models()]
+    return list(dict.fromkeys(n for n in names if "/" not in n))
+
+
+REQUIRED_OLLAMA_MODELS = _required_ollama_models()
 
 
 def _check(label: str, ok: bool, detail: str) -> bool:

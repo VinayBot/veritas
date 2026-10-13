@@ -15,6 +15,11 @@ import networkx as nx
 from app.core.config import get_settings
 from app.stores.graph.base import GraphEdge, GraphNode, TraversalPath
 
+MIN_LINKABLE_NAME_LENGTH = 4
+# How closely an entity's name must match part of the query (0-100). At 60 a nonsense string
+# linked to unrelated entities; at 80 a name has to be all but present in the text.
+LINK_SCORE_CUTOFF = 80
+
 
 class NetworkXGraphStore:
     def __init__(self, path: Path | None = None) -> None:
@@ -72,21 +77,33 @@ class NetworkXGraphStore:
             source_id, target_id, predicate=predicate, doc_id=doc_id, chunk_id=chunk_id
         )
 
-    def find_entities_by_name(self, query_text: str, limit: int = 5) -> list[GraphNode]:
+    def find_entities_by_name(
+        self, query_text: str, limit: int = 5, doc_id: str | None = None
+    ) -> list[GraphNode]:
+        """Entities whose name appears in, or closely resembles part of, the text. With
+        `doc_id`, only that document's entities are considered: the graph spans every
+        document, and a question about one must not link to another's entities."""
         from rapidfuzz import fuzz, process
 
         if self._graph.number_of_nodes() == 0:
             return []
-        # A one- or two-character name ("1", "US") partially matches almost any query.
-        names = {
-            n: name
-            for n in self._graph.nodes
-            if len(name := str(self._graph.nodes[n].get("name", n))) >= 3
-        }
+        # A one- or two-character name ("1", "US") partially matches almost any query, and
+        # a three-letter one ("one") matches inside ordinary words.
+        names = {}
+        for node_id, data in self._graph.nodes(data=True):
+            if doc_id is not None and doc_id not in data.get("doc_ids", []):
+                continue
+            name = str(data.get("name", node_id))
+            if len(name.strip()) >= MIN_LINKABLE_NAME_LENGTH:
+                names[node_id] = name.lower()
         if not names:
             return []
         matches = process.extract(
-            query_text, names, scorer=fuzz.partial_ratio, limit=limit, score_cutoff=60
+            query_text.lower(),
+            names,
+            scorer=fuzz.partial_ratio,
+            limit=limit,
+            score_cutoff=LINK_SCORE_CUTOFF,
         )
         return [self._to_node(node_id) for _, _score, node_id in matches]
 

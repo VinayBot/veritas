@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from conftest import upload_and_wait_ready, wait_for_document, wait_for_enrichment
 from httpx import AsyncClient
 
@@ -126,3 +128,21 @@ async def test_sample_document_goes_through_real_ingestion(client: AsyncClient) 
     assert doc["status"] == "ready"
     assert doc["filename"] == "northwind_remote_work_travel_policy.pdf"
     assert doc["chunk_count"] > 0
+
+
+async def test_a_ready_document_can_be_deleted_while_its_graph_is_still_being_read(
+    client: AsyncClient,
+) -> None:
+    """Background enrichment is optional work; it is stopped, not waited for."""
+    resp = await client.post("/api/v1/documents/sample")
+    document_id = resp.json()["document_id"]
+    for _ in range(240):
+        doc = (await client.get(f"/api/v1/documents/{document_id}")).json()
+        if doc["status"] == "ready":
+            break
+        await asyncio.sleep(0.5)
+    assert doc["status"] == "ready"
+
+    deleted = await client.delete(f"/api/v1/documents/{document_id}")
+    assert deleted.status_code == 200, deleted.text
+    assert (await client.get(f"/api/v1/documents/{document_id}")).status_code == 404

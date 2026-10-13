@@ -55,3 +55,36 @@ async def test_graph_endpoint_with_query_links_entities(client: AsyncClient) -> 
     graph = graph_resp.json()
     assert graph["linked_entities"]
     assert any(n["id"] == nodes[0]["id"] for n in graph["linked_entities"])
+
+
+async def test_graph_query_is_scoped_to_the_document_and_empty_when_nothing_matches(
+    client: AsyncClient,
+) -> None:
+    """A filter that matches nothing returns nothing (it used to fall back to the whole
+    graph), and a name that only exists in another document does not link."""
+    one = await client.post(
+        "/api/v1/documents/upload",
+        files={"file": ("a.txt", b"Quillhaven Robotics acquired Dunmere Optics.", "text/plain")},
+    )
+    two = await client.post(
+        "/api/v1/documents/upload",
+        files={"file": ("b.txt", b"Larkspur Freight opened a depot in Westmarch.", "text/plain")},
+    )
+    first, second = one.json()["document_id"], two.json()["document_id"]
+    await wait_for_enrichment(client, first)
+    await wait_for_enrichment(client, second)
+
+    nonsense = (await client.get(f"/api/v1/graph/{first}", params={"query": "qxqxqxqxqx"})).json()
+    assert nonsense["nodes"] == [] and nonsense["edges"] == []
+
+    other = (
+        await client.get(f"/api/v1/graph/{first}", params={"query": "Larkspur Freight"})
+    ).json()
+    assert other["nodes"] == [] and not other["linked_entities"]
+
+    # Which names survive PII masking depends on context, so ask the graph what it holds.
+    nodes = (await client.get(f"/api/v1/graph/{first}")).json()["nodes"]
+    assert nodes
+    own = (await client.get(f"/api/v1/graph/{first}", params={"query": nodes[0]["name"]})).json()
+    assert any(n["id"] == nodes[0]["id"] for n in own["linked_entities"])
+    assert all(first in n["doc_ids"] for n in own["nodes"])

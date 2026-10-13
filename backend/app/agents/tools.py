@@ -54,7 +54,7 @@ async def graph_traverse_tool(
 ) -> list[dict]:
     """Chunks reached by following relations from the entities the question mentions. With
     `doc_id`, only that document's chunks are returned (the graph itself spans documents)."""
-    result = graph_query(query_text, hops=hops)
+    result = graph_query(query_text, hops=hops, doc_id=doc_id)
     chunk_ids = {e["chunk_id"] for e in result["edges"] if e.get("chunk_id")}
 
     chunks_by_id: dict[str, str] = {}

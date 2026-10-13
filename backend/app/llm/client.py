@@ -246,6 +246,41 @@ def _consume_budget(model_name: str) -> None:
     budget[0] -= 1
 
 
+def _is_resident(model_name: str) -> bool:
+    settings = get_settings()
+    resident = {
+        get_model_config().generator.split("/", 1)[-1],
+        settings.guard_model.split("/", 1)[-1],
+    }
+    return model_name.split("/", 1)[-1] in resident
+
+
+def _ollama_options(model_name: str) -> dict[str, Any]:
+    if not model_name.startswith(("ollama/", "ollama_chat/")):
+        return {}
+    return {"api_base": get_settings().ollama_base_url}
+
+
+async def _release(model_name: str) -> None:
+    """Asks the local server to unload a model that is not one of the two kept in memory
+    (the answer model and the guard model). A council member or a separately chosen judge is
+    dropped as soon as it has replied, so picking an extra model never leaves three or four
+    resident on a 16 GB machine. Sent to Ollama directly: the `keep_alive` request option is
+    not forwarded on every LiteLLM route."""
+    if not model_name.startswith(("ollama/", "ollama_chat/")) or _is_resident(model_name):
+        return
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post(
+                f"{get_settings().ollama_base_url}/api/generate",
+                json={"model": model_name.split("/", 1)[1], "keep_alive": 0},
+            )
+    except httpx.HTTPError:
+        pass  # the server will unload it on its own schedule
+
+
 async def complete(
     prompt: str,
     model: str | None = None,
@@ -259,7 +294,6 @@ async def complete(
     and `system` — for models that need real user/assistant turns (Llama Guard)."""
     import litellm
 
-    settings = get_settings()
     model_name = model or get_model_config().generator
     _consume_budget(model_name)
     if messages is None:
@@ -275,8 +309,7 @@ async def complete(
         "temperature": temperature,
         "timeout": timeout,
     }
-    if model_name.startswith(("ollama/", "ollama_chat/")):
-        kwargs["api_base"] = settings.ollama_base_url
+    kwargs.update(_ollama_options(model_name))
 
     try:
 
@@ -292,6 +325,7 @@ async def complete(
         raise LlmUnavailableError(f"{model_name} unavailable: {exc}") from exc
 
     _record_usage(model_name, response)
+    await _release(model_name)
     content = response.choices[0].message.content
     return content or ""
 
@@ -316,7 +350,6 @@ async def stream_complete(
 
     import litellm
 
-    settings = get_settings()
     model_name = model or get_model_config().generator
     _consume_budget(model_name)
     messages = []
@@ -332,8 +365,7 @@ async def stream_complete(
         "stream": True,
         "stream_options": {"include_usage": True},
     }
-    if model_name.startswith("ollama/"):
-        kwargs["api_base"] = settings.ollama_base_url
+    kwargs.update(_ollama_options(model_name))
 
     parts: list[str] = []
     last_chunk: Any = None
@@ -365,4 +397,5 @@ async def stream_complete(
         raise LlmUnavailableError(f"{model_name} unavailable: {exc}") from exc
 
     _record_usage(model_name, last_chunk)
+    await _release(model_name)
     return "".join(parts)

@@ -119,7 +119,7 @@ export function AppShell() {
       >
         Skip to content
       </a>
-      <header className="relative z-(--z-sticky) flex h-14 shrink-0 items-center gap-4 border-b border-border bg-surface/80 px-4 backdrop-blur-(--blur-glass)">
+      <header className="header-flow relative z-(--z-sticky) flex h-14 shrink-0 items-center gap-4 border-b border-border bg-surface/80 px-4 backdrop-blur-(--blur-glass)">
         <Link to="/" className="flex shrink-0 items-center gap-2">
           <span className="font-display text-lg font-semibold tracking-tight text-foreground">Veritas</span>
         </Link>

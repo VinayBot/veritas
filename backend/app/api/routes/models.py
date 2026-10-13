@@ -53,6 +53,7 @@ async def _state() -> dict:
 async def local_models() -> dict:
     """Installed models and the current selection. If Ollama is not running, `ollama.status`
     is "down" with the exact error and the command that starts it."""
+    await models_catalog.reconcile_selection()  # a chosen model may have been removed since
     return await _state()
 
 

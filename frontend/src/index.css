@@ -392,3 +392,102 @@ body {
     visibility: hidden;
   }
 }
+
+/* ---- Motion pass 3 ---- */
+/* A thin band of light travelling along the bottom edge of the header. */
+.header-flow::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--color-accent), var(--color-gold), var(--color-live), transparent);
+  background-size: 50% 100%;
+  background-repeat: no-repeat;
+  animation: header-flow 7s linear infinite;
+  opacity: 0.8;
+}
+@keyframes header-flow {
+  from {
+    background-position: -100% 0;
+  }
+  to {
+    background-position: 300% 0;
+  }
+}
+
+/* The headline's gradient slides slowly across the letters. */
+.text-shimmer {
+  background: linear-gradient(100deg, var(--color-foreground) 30%, var(--color-accent-soft) 45%, var(--color-accent) 55%, var(--color-foreground) 70%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: text-shimmer 6s ease-in-out infinite;
+}
+@keyframes text-shimmer {
+  0%,
+  100% {
+    background-position: 100% 0;
+  }
+  50% {
+    background-position: 0% 0;
+  }
+}
+
+/* A new chat message pops into place from the side it belongs to. */
+.pop-in {
+  animation: pop-in 260ms var(--ease-enter) both;
+  transform-origin: bottom right;
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translate3d(8px, 6px, 0) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Progress that is really moving carries a travelling highlight. */
+.progress-live {
+  position: relative;
+  overflow: hidden;
+}
+.progress-live::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, white 45%, transparent), transparent);
+  animation: progress-sheen 1.4s linear infinite;
+}
+@keyframes progress-sheen {
+  from {
+    transform: translate3d(-100%, 0, 0);
+  }
+  to {
+    transform: translate3d(100%, 0, 0);
+  }
+}
+
+/* The upload target's dashed border marches while a file is over it or it has focus. */
+.dropzone {
+  transition: transform var(--duration-standard) var(--ease-enter), border-color var(--duration-standard) var(--ease-enter);
+}
+.dropzone[data-dragging='true'] {
+  transform: scale(1.02);
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-glow);
+}
+.dropzone:hover svg,
+.dropzone[data-dragging='true'] svg {
+  animation: bob 900ms var(--ease-enter) infinite alternate;
+}
+@keyframes bob {
+  to {
+    transform: translate3d(0, -5px, 0);
+  }
+}

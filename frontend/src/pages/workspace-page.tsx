@@ -107,6 +107,7 @@ export function WorkspacePage() {
   const messages = useAppStore((s) => (documentId ? (s.conversations[documentId] ?? NO_MESSAGES) : NO_MESSAGES))
 
   const [uploading, setUploading] = useState(false)
+  const [dragging, setDragging] = useState(false)
   const { doc, refresh: refreshDoc } = useDocumentStatus(documentId)
   const { events } = useTraceEvents(documentId)
   const strategies = useStrategies(doc?.status === 'ready' ? documentId : null, doc?.enrichment_status)
@@ -402,7 +403,7 @@ export function WorkspacePage() {
         </div>
         <AnalystBot state={uploading ? 'working' : 'idle'} size={200} />
         <div className="max-w-xl text-center">
-          <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground">Ask your documents. See exactly how the answer was found.</h1>
+          <h1 className="text-shimmer font-display text-3xl font-semibold tracking-tight">Ask your documents. See exactly how the answer was found.</h1>
           <p className="mt-3 text-sm text-muted-foreground">
             Upload a document and Veritas ingests it, recommends how to search it, and answers with citations you can check.
           </p>
@@ -418,13 +419,19 @@ export function WorkspacePage() {
               fileInputRef.current?.click()
             }
           }}
-          onDragOver={(e) => e.preventDefault()}
+          onDragOver={(e) => {
+            e.preventDefault()
+            setDragging(true)
+          }}
+          onDragLeave={() => setDragging(false)}
           onDrop={(e) => {
             e.preventDefault()
+            setDragging(false)
             const file = e.dataTransfer.files[0]
             if (file) void handleFile(file)
           }}
-          className="lacquer-card flex w-full max-w-xl cursor-pointer flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-border bg-surface/80 px-6 py-10 text-center outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          data-dragging={dragging}
+          className="dropzone lacquer-card flex w-full max-w-xl cursor-pointer flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-border bg-surface/80 px-6 py-10 text-center outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           <Upload className="size-7 text-accent" aria-hidden="true" />
           <p className="font-medium text-foreground">{uploading ? 'Uploading…' : 'Drop a document here, or click to browse'}</p>
@@ -582,13 +589,13 @@ export function WorkspacePage() {
                   {doc?.status === 'ready' ? 'Ask something about this document.' : 'You can ask questions as soon as ingestion finishes.'}
                 </p>
                 {doc?.status === 'ready' && (
-                  <div className="flex max-w-lg flex-wrap justify-center gap-2">
+                  <div className="stagger flex max-w-lg flex-wrap justify-center gap-2">
                     {STARTERS.map((q) => (
                       <button
                         key={q}
                         type="button"
                         onClick={() => void handleSend(q)}
-                        className="rounded-pill border border-border bg-surface-raised px-3 py-1.5 text-xs text-foreground transition-colors duration-micro hover:border-accent/60"
+                        className="rise-in rounded-pill border border-border bg-surface-raised px-3 py-1.5 text-xs text-foreground transition-colors duration-micro hover:border-accent/60"
                       >
                         {q}
                       </button>
@@ -785,7 +792,7 @@ function MessageBubble({
   if (message.role === 'user') {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-accent px-3.5 py-2.5 text-sm whitespace-pre-wrap text-on-accent">{message.content}</div>
+        <div className="pop-in max-w-[85%] rounded-2xl rounded-br-md bg-accent px-3.5 py-2.5 text-sm whitespace-pre-wrap text-on-accent">{message.content}</div>
       </div>
     )
   }

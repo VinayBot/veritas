@@ -124,7 +124,17 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-3xl" data-testid="settings-dialog" data-lenis-prevent>
+      <DialogContent
+        className="max-h-[88vh] overflow-y-auto sm:max-w-3xl"
+        data-testid="settings-dialog"
+        data-lenis-prevent
+        // Focus the dialog, not its first control (a tooltip trigger): otherwise the first
+        // Escape closes the tooltip that focus opened instead of the dialog.
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+          ;(event.currentTarget as HTMLElement).focus()
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Models</DialogTitle>
           <DialogDescription>

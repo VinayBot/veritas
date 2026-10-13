@@ -17,6 +17,7 @@ from typing import Any
 
 import httpx
 
+from app.core import runtime_settings
 from app.core.config import get_settings
 from app.core.health import OLLAMA_START_HINT
 from app.embeddings.registry import CANDIDATE_MODELS, loaded_embedder_names
@@ -308,3 +309,39 @@ async def validate_selection(changes: dict[str, Any]) -> None:
             f"{changes['reranker']} is not a supported reranker. "
             f"Choose one of: {', '.join(RERANKER_CANDIDATES)}."
         )
+
+
+async def reconcile_selection() -> list[str]:
+    """Drops saved model choices that point at a model no longer installed, so the app falls
+    back to its configured default instead of failing every answer with "model not found".
+    A model can disappear after being chosen (`ollama rm`). Returns what was dropped. Does
+    nothing when Ollama cannot be reached: an unreachable server says nothing about what is
+    installed."""
+    base = get_settings().ollama_base_url
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            tags = await client.get(f"{base}/api/tags")
+            tags.raise_for_status()
+            installed = {f"ollama/{m['name']}" for m in tags.json().get("models", [])}
+    except (httpx.HTTPError, KeyError, ValueError):
+        return []
+
+    def missing(model_id: Any) -> bool:
+        return (
+            isinstance(model_id, str)
+            and model_id.startswith("ollama/")
+            and (model_id not in installed)
+        )
+
+    dropped: list[str] = []
+    overrides = dict(runtime_settings.current())
+    for key in ("generator_model", "judge_model", "chairman_model"):
+        if missing(overrides.get(key)):
+            dropped.append(f"{key}={overrides[key]}")
+            await runtime_settings.set_value(key, None)
+    council = overrides.get("council_models")
+    if isinstance(council, list) and any(missing(m) for m in council):
+        kept = [m for m in council if not missing(m)]
+        dropped.append(f"council_models={[m for m in council if missing(m)]}")
+        await runtime_settings.set_value("council_models", kept or None)
+    return dropped

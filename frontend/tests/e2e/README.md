@@ -7,8 +7,7 @@ result.
 ## Running
 
 1. Start the backend with Ollama up: `make backend-dev` (or `make dev` for both) from the repo
-   root. The default `llama3.2:3b` model must be pulled at minimum; `qwen2.5:7b-instruct` and
-   `gemma2:2b` are needed for the council/advisor paths the dashboard step touches.
+   root. The configured answer model (`DEFAULT_LLM_MODEL`) and `llama-guard3:1b` must be pulled.
 2. From `frontend/`: `npx playwright test` (it starts the Vite dev server itself).
 
 The full flow test ingests a real document (which runs the real profiler/advisor tournament)

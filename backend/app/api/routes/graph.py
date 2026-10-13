@@ -89,14 +89,14 @@ async def get_corpus_graph(limit: int = MAX_OVERVIEW_NODES) -> GraphResponse:
 @router.get("/graph/{document_id}", response_model=GraphResponse)
 async def get_graph(document_id: str, query: str | None = None, hops: int = 2) -> GraphResponse:
     if query:
-        result = graph_query(query, hops=hops)
-        store = get_graph_store()
-        full = store.to_json(doc_id=document_id)
+        # Scoped to this document, and empty when nothing matches: falling back to the whole
+        # graph made every filter look like it matched everything.
+        result = graph_query(query, hops=hops, doc_id=document_id)
+        full = get_graph_store().to_json(doc_id=document_id)
         node_by_id = {n["id"]: n for n in full["nodes"]}
-        path_nodes = [node_by_id[n] for n in result["nodes"] if n in node_by_id]
         return GraphResponse(
-            nodes=path_nodes or full["nodes"],
-            edges=result["edges"] or full["edges"],
+            nodes=[node_by_id[n] for n in result["nodes"] if n in node_by_id],
+            edges=result["edges"],
             linked_entities=result["linked_entities"],
         )
 

@@ -140,15 +140,15 @@ async def build_graph_for_document(
     }
 
 
-def link_query_entities(query: str, limit: int = 5) -> list[GraphNode]:
+def link_query_entities(query: str, limit: int = 5, doc_id: str | None = None) -> list[GraphNode]:
     store = get_graph_store()
-    direct = store.find_entities_by_name(query, limit=limit)
+    direct = store.find_entities_by_name(query, limit=limit, doc_id=doc_id)
     if direct:
         return direct
 
     found: list[GraphNode] = []
     for ent in extract_entities(query):
-        found.extend(store.find_entities_by_name(ent.text, limit=2))
+        found.extend(store.find_entities_by_name(ent.text, limit=2, doc_id=doc_id))
     seen: set[str] = set()
     out: list[GraphNode] = []
     for node in found:
@@ -158,14 +158,24 @@ def link_query_entities(query: str, limit: int = 5) -> list[GraphNode]:
     return out[:limit]
 
 
-def graph_query(query: str, hops: int = 2) -> dict:
+def graph_query(query: str, hops: int = 2, doc_id: str | None = None) -> dict:
+    """Entities the query mentions and what is reachable from them. With `doc_id`, both the
+    entities and the relations followed belong to that document."""
     store = get_graph_store()
-    linked = link_query_entities(query)
+    linked = link_query_entities(query, doc_id=doc_id)
     if not linked:
         return {"linked_entities": [], "nodes": [], "edges": []}
     path = store.traverse([n.id for n in linked], hops=hops)
+    edges = [e.model_dump() for e in path.edges if doc_id is None or e.doc_id in (None, doc_id)]
+    if doc_id is None:
+        nodes = path.nodes
+    else:
+        reached = (
+            {n.id for n in linked} | {e["source"] for e in edges} | {e["target"] for e in edges}
+        )
+        nodes = [n for n in path.nodes if n in reached]
     return {
         "linked_entities": [n.model_dump() for n in linked],
-        "nodes": path.nodes,
-        "edges": [e.model_dump() for e in path.edges],
+        "nodes": nodes,
+        "edges": edges,
     }

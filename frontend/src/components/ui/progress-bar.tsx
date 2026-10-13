@@ -31,7 +31,7 @@ export function ProgressBar({
       className={cn('h-1.5 w-full overflow-hidden rounded-pill bg-surface-raised', className)}
     >
       <div
-        className={cn('h-full w-full origin-left rounded-pill transition-transform duration-standard ease-enter', fill, clamped === undefined && 'opacity-40')}
+        className={cn('h-full w-full origin-left rounded-pill transition-transform duration-standard ease-enter', fill, clamped === undefined ? 'opacity-40' : clamped < 1 && 'progress-live')}
         style={{ transform: `scaleX(${clamped ?? 1})` }}
       />
     </div>

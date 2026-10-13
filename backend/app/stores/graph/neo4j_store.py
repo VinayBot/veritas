@@ -76,10 +76,14 @@ class Neo4jGraphStore:
                 chunk_id=chunk_id,
             )
 
-    def find_entities_by_name(self, query_text: str, limit: int = 5) -> list[GraphNode]:
+    def find_entities_by_name(
+        self, query_text: str, limit: int = 5, doc_id: str | None = None
+    ) -> list[GraphNode]:
         with self._driver.session() as session:
             result = session.run(
-                "MATCH (n:Entity) WHERE toLower(n.name) CONTAINS toLower($q) RETURN n LIMIT $limit",
+                "MATCH (n:Entity) WHERE toLower(n.name) CONTAINS toLower($q) "
+                "AND ($doc IS NULL OR $doc IN n.doc_ids) RETURN n LIMIT $limit",
+                doc=doc_id,
                 q=query_text,
                 limit=limit,
             )
