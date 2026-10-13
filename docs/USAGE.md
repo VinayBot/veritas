@@ -1,71 +1,80 @@
-# Usage
+# Using Veritas
 
-A walkthrough of the running app — see [docs/API.md](API.md) if you want the underlying
-endpoints instead of the UI.
+Three tabs: **Workspace**, **Architecture**, **Evaluation**. Everything shown is read from
+the running backend; a value that has not been measured says "Not measured".
 
-## 1. Upload or ingest a document
+Start it with `make dev` (backend on :8000, frontend on :5173) and open
+<http://localhost:5173/app>. Ollama must be running (`ollama serve`).
 
-Open the **Workspace** tab. Drop a file (PDF, DOCX, PPTX, HTML, Markdown, TXT, CSV, EML, RTF)
-or click to browse. Ingestion runs synchronously and the Stepper above the chat box fills in
-live, stage by stage, from real backend trace events — Upload, Parse, Refine, PII Vault,
-Chunk, Embed, Index, Graph, Profile, Advisor. A larger document (roughly a page or more) will
-also trigger a real chunking tournament during that last "Advisor" stage; a one- or two-chunk
-document won't (see docs/DECISIONS.md for the exact threshold and why).
+## 1. Workspace — upload and ask
 
-URL ingestion (`POST /documents/url`) isn't wired into the Workspace UI yet — see
-docs/VALIDATION_REPORT.md.
+1. Drop a file on the upload area, or click **Or try the bundled sample**. The stepper shows
+   each ingestion stage as it really happens; chat unlocks at "ready". Graph extraction and
+   profiling continue in the background and never block chat.
+2. Type a question. Every question gets a **quick answer of 3–4 lines**.
+3. Turn on **Deep reasoning** (the button above the question box) for a **7–8 line** answer.
+   It stays on until you turn it off.
+4. The answer streams in as the model writes it. Under it you see which strategy and model
+   answered, the measured time, and — once scoring finishes — how many sentences are supported
+   by the retrieved text. Click a citation chip to see its source.
 
-## 2. Chat with it
+**Switch the retrieval strategy** with the first button in the header (for example
+"Hybrid + Rerank"). Each option says what it is best for and its latency: "measured" when
+this machine has run it, "typical" otherwise. A strategy that needs an index or a graph the
+document does not have offers to build it.
 
-Once the document shows `ready`, ask a question. Three modes (chips above the input):
+**Switch the answer model** with the second button. Only models installed in your Ollama are
+listed, with size and whether one is loaded. A warning appears if the selection would not fit
+the machine's memory tier. "More model settings" opens judge, council, embedding and reranker
+choices; changing the embedding model marks the index stale and offers a re-index.
 
-- **agentic** (default) — the full LangGraph pipeline: plans, retrieves, critiques its own
-  retrieval, synthesizes, verifies its own claims against the context.
-- **hybrid** — a single hybrid-search call + one synthesis call. Faster, simpler.
-- **graph** — retrieves via graph traversal instead of vector/keyword search.
+**Recommendation.** After ingestion the panel on the right recommends a strategy for this
+document, with the measurements behind it ("How was this decided?" shows every rule).
+**Use this strategy** makes it the default. Then **Measure the improvement** runs the previous
+and the recommended strategy on the same questions with known answers and shows the measured
+before → after for faithfulness, relevance, correctness, recall and speed. It never shows a
+gain that was not measured.
 
-Toggle **Council** to replace single-model synthesis with a real multi-model vote (every
-model in `COUNCIL_MODELS` answers, peer-reviews anonymously, a chairman model synthesizes the
-final answer) — slower, and surfaces a `council run <id>` badge you can look up in full via
-`GET /api/v1/council/{id}`. Toggle **Reveal PII** to allow the output guardrail to show
-previously-masked values this session is authorized to reveal.
+**History.** Conversations are kept per document in the browser, so a reload or coming back
+to an earlier document (document switcher, top right) shows the same chat. "Clear chat"
+removes it.
 
-Each answer carries: its citations (hover for the source text), a quality badge (`estimated:
-confidence NN%` — click for the full faithfulness/relevancy/citation-validity breakdown), and
-either a routing badge (which model actually answered, and whether it fell back) or the
-council badge. Click the step count to expand the full agent trace for that turn.
+## 2. Architecture — how it works, live
 
-## 3. Dashboard
+- **Overview / Detailed / Live Trace** switch the level of detail. The diagram is built from
+  the code: packages are discovered, the agent's nodes come from the compiled LangGraph.
+- The strip of pills is a live health probe per subsystem. **Run self-check** exercises the
+  real pipeline end to end and reports each step.
+- Ask a question in Workspace with this tab open on **Live Trace**: bright packets travel the
+  edges and nodes ripple as each real stage runs. Close the socket and they stop.
+- **Play request path** walks the declared route of a question through the system. It is
+  labelled as an illustration and is never mixed with live traffic.
+- Faint drifting dashes only show which way an edge flows. Click any node for its purpose,
+  configuration, recent events and source file. **Export** saves PNG, SVG or the JSON.
 
-Shows the current document's **Advisor** recommendation: a real tournament result
-(Baseline vs. Suggested configs, their measured nDCG/faithfulness/latency, the rationale tied
-to those numbers, and the suggested RAG mode). If no recommendation exists yet (document too
-small, or never run), click **Run advisor now**. **Accept** re-chunks/re-embeds/re-indexes the
-document with the suggested config for real; **Ignore** just records the decision. Below that,
-the most recent chat turn's quality scores as gauges.
+## 3. Evaluation — one dashboard, five views
 
-## 4. Architecture
+| View | What it answers |
+| --- | --- |
+| **Quality** | How good is each strategy on this document? Run an evaluation (questions with known answers), then read faithfulness, relevance, precision/recall@5, the trend across runs, the per-strategy table and radar, speed, release gates, and the chunking advisor. |
+| **Usage** | What did real questions look like? Volume and quality by day, strategy mix, time per pipeline stage, reliability, index size. |
+| **Knowledge graph** | The entities and relations read from the document. **Ask the graph** a question: the traversal lights up entity by entity and a real answer is written through the graph strategy. |
+| **Safety** | Guardrail decisions on real questions, trips by rule, the audit log, and a red-team suite you can run. |
+| **Corpus** | Every ingested document; pick one to work with. |
 
-A live diagram of the real pipeline, switchable between the **ingestion** trace (this
-document's upload) and the **chat** trace (the current session's agentic/hybrid/graph run).
-Every node's color and pulse comes from a real `TraceEvent` over `/ws/trace/{session_id}` —
-click a node for its real duration/output/metrics in a side panel.
+Numbers are labelled **Verified** (checked against ground truth from the eval set) or
+**Estimated** (a judge model's opinion, no reference answer). A change is only shown against
+the previous run on the same questions.
 
-## 5. Knowledge Graph
+## Keyboard
 
-The entities and relations GraphRAG extracted from the current document, force-laid-out and
-colored by detected community. Search to run a real graph traversal from matching entities
-instead of showing the whole graph; click a node for its mentions and document coverage.
+`⌘K` / `Ctrl K` opens the command palette (go to a tab or Evaluation view, switch strategy,
+toggle Deep reasoning, run an evaluation, switch document). `Enter` sends, `Shift Enter` adds
+a line. Every control is reachable with Tab; reduced-motion preferences are respected.
 
-## 6. Evaluation
+## Memory and speed on a 16 GB laptop
 
-**Generate dataset** builds a fresh synthetic eval set from the document's own chunks.
-**Run benchmark** scores every retrieval/agent config against a fresh eval set plus the real
-red-team suite, and shows the same table `make eval`/`docs/BENCHMARKS.md` would — this is a
-genuinely slow, real operation (several minutes), not a quick mock call.
-
-## 7. Guardrails
-
-**Run red-team suite** fires the real 42-attack/15-benign corpus at the live input guardrail
-and reports the real block rate and false-positive rate. The audit log below shows every real
-guardrail decision (allow or block, every layer) across every chat turn so far.
+Only two models stay in memory: the answer model and the small safety model. Lighter:
+`DEFAULT_LLM_MODEL=ollama/llama3.2:3b`. Better at following length and citation instructions:
+`ollama/gemma3:4b`. Larger models are only loaded if you pick them. See
+`docs/TROUBLESHOOTING.md` if answers are slow.

@@ -431,3 +431,31 @@ stream as they're published. Each frame is one JSON-encoded `TraceEvent`:
 
 `status` is one of `queued | running | done | blocked | error`. Connecting to a session with
 no history yet (or ever) is not an error — the socket just stays open with nothing to replay.
+
+
+## Added in the UI / multi-RAG overhaul
+
+All under `/api/v1`. Long-running work returns `{ "job_id": ... }`; follow it at
+`GET /jobs/{id}/stream` (SSE `progress` / `status` events) and cancel with
+`POST /jobs/{id}/cancel`.
+
+| Method and path | Purpose |
+| --- | --- |
+| `POST /chat` | Body adds `strategy` (id from `/rag/strategies`, omitted = workspace default) and `detail` (`"brief"` 3–4 lines, `"deep"` 7–8). SSE events, all JSON: `session`, `stage`, `token`, `replace` (final text supersedes what was streamed), `citations`, `agent_steps`, `routing`, `council_run_id`, `answer` (complete; carries strategy, detail, latency, usage), `quality`, `done`, `error`. |
+| `GET /rag/strategies?document_id=` | The eight strategies with description, cost, typical and measured latency, and live availability for the document. |
+| `PUT /rag/default` | Set the workspace default strategy. |
+| `POST /rag/strategies/{id}/prepare` | Build the index variant or graph a strategy needs (job). |
+| `GET /documents/{id}/recommendation` | Rule-based strategy recommendation with reasons, scores and the full rule trace. |
+| `POST /rag/compare/estimate`, `POST /rag/compare` | Cost estimate, then a comparison job on one question or an eval set. `GET /rag/comparisons/{id}`, `GET /documents/{id}/comparisons` read results. |
+| `GET /models/local` | Installed Ollama models with roles, sizes and memory-budget assessment; cloud models only when their key is set. |
+| `PUT /models/selection`, `POST /models/reset` | Choose generator, judge, council, chairman, embedding, reranker. |
+| `GET /models/index-status`, `POST /models/reindex` | Whether the index matches the selected embedding model; re-index job. |
+| `GET /analytics/overview?days=` | Usage, latency by stage and strategy, quality by day, reliability, corpus size. |
+| `GET /architecture/graph`, `GET /architecture/nodes/{id}/events` | Code-derived topology with live status; recent trace events for a node. |
+| `GET /health/subsystems`, `POST /health/self-check` | Per-subsystem probes; end-to-end self-check. |
+| `POST /eval/benchmarks/start`, `GET /eval/benchmarks`, `GET /documents/{id}/eval/datasets` | Evaluation as a background job; run history; saved eval sets. |
+| `GET /graph/stats?document_id=`, `GET /graph` | Graph statistics; corpus-wide graph. |
+| `GET /audit/summary` | Guardrail decisions on real traffic, by rule and layer. |
+| `GET /documents`, `DELETE /documents/{id}`, `POST /documents/sample` | Corpus listing, deletion, bundled sample. |
+
+Removed: `/test-center/*`.

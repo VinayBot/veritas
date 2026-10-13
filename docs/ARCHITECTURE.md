@@ -73,9 +73,23 @@ and gates on block rate (>=95%) and false-positive rate (<=10%) — `make redtea
 
 ## Frontend
 
-`frontend/src/pages/` — Workspace (upload + chat), Dashboard (Advisor + latest answer
-quality), Architecture (xyflow, driven by the trace WebSocket), Knowledge Graph
-(react-force-graph-2d over `GET /graph/{id}`), Evaluation (dataset generation + benchmark
-runs), Guardrails (audit log + red-team trigger), and a Landing page. `frontend/src/lib/api/`
+`frontend/src/pages/` — three tabs and a landing page. **Workspace** (upload, streamed chat,
+strategy and model pickers, recommendation, per-answer analysis), **Architecture** (xyflow
+diagram generated from `GET /architecture/graph`, driven by the trace WebSocket) and
+**Evaluation** (`components/evaluation/`: Quality, Usage, Knowledge graph, Safety, Corpus;
+charts are ECharts through `components/charts/EChart.tsx`, which reads its colours from the
+design tokens). Design tokens live in `src/styles/tokens.css`. `frontend/src/lib/api/`
 is the one typed client every page goes through; `frontend/src/hooks/useTraceEvents.ts` is the
 one WebSocket subscription both the Workspace and Architecture pages reuse.
+
+
+## Request path for a question
+
+`POST /chat` → `agents/orchestrator.run_chat_turn_tracked` → the chosen strategy from
+`rag_engines/registry.py` (`rag_engines/execute.retrieve` for the direct strategies, the
+LangGraph agent for `agentic`, `council/` for `council`) → `llm/router` → Ollama. Tokens are
+relayed to the client as they are written; the output guardrail, `tidy_answer` and then
+scoring follow. Scoring, graph extraction and background jobs yield the model to any question
+in progress (`llm/client.interactive`). `GET /architecture/graph` describes all of this from
+the code itself: packages are discovered, agent nodes are read off the compiled graph, and
+each declared edge is checked against real imports by `tests/test_architecture_api.py`.

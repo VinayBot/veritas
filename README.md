@@ -5,8 +5,8 @@ guardrails, automated evaluation, and a real-trace-driven React interface — fr
 default (Ollama), with optional cloud LLMs via env vars.
 
 **Status: all 13 build phases have working code and real tests** — backend (ingestion through
-LLM Council) and a six-screen frontend (Workspace, Dashboard, Architecture, Knowledge Graph,
-Evaluation, Guardrails) plus a landing page. See
+LLM Council, eight switchable RAG strategies) and a three-tab frontend (Workspace, Architecture,
+Evaluation) plus a landing page. See
 [docs/VALIDATION_REPORT.md](docs/VALIDATION_REPORT.md) for the honest, itemized pass/fail
 account of what's verified vs. simplified vs. not attempted — several things described in the
 original brief (a GSAP-driven Cinematic Tour, a recorded hero video, Lighthouse/axe scores)
@@ -61,11 +61,13 @@ corpus; `make test` / `make lint` run both halves' real test and lint suites.
 - **Evaluation**: synthetic eval-set generation from a document's own chunks, textbook
   retrieval metrics, LLM-judge generation scoring, a profiler + 5-candidate chunking tournament
   (the "Advisor"), and a full benchmark runner with hard production gates.
-- **Frontend**: a real app (not a mock) — upload a document and watch it ingest through a
-  trace-driven Stepper, chat with real citations/quality scores/model routing, a Dashboard with
-  the Advisor's Accept/Ignore flow, an Architecture tab animated by a live `/ws/trace`
-  WebSocket, a force-directed Knowledge Graph view, and a Guardrails audit log + red-team
-  trigger — plus a landing page.
+- **Frontend**: three tabs, all on real data. **Workspace**: upload, streamed answers with
+  citations (3–4 lines, or 7–8 with Deep reasoning), one-click strategy and local-model
+  switching, a per-document strategy recommendation with a measured before/after, and a
+  per-answer analysis panel. **Architecture**: a diagram generated from the code, live health
+  probes, a self-check, and packets driven by the `/ws/trace` WebSocket. **Evaluation**: one
+  dashboard with Quality, Usage, Knowledge graph (with "ask the graph"), Safety and Corpus
+  views. See [docs/USAGE.md](docs/USAGE.md).
 
 Every number any of these screens show is either read straight off a real backend response or
 computed from one — see docs/DECISIONS.md for the specific "Estimated vs. Verified" labeling

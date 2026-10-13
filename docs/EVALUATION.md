@@ -80,3 +80,23 @@ there's always an answer to "what would ship today" without claiming it's actual
 
 Run it: `make eval` (ingests the bundled demo document and runs the full suite, writing
 `docs/BENCHMARKS.md`), or `POST /eval/benchmarks/run` for a specific document via the API/UI.
+
+
+## How the Evaluation tab reads these numbers
+
+- **Verified vs Estimated.** Retrieval metrics (precision, recall, nDCG, MRR @5) and
+  correctness are *Verified*: computed against the eval set's labelled chunks and reference
+  answers. Faithfulness and answer relevance are *Estimated*: a judge model's opinion with no
+  reference. Scores on live Workspace answers are always Estimated.
+- **Not measured is not zero.** A judge call that fails or times out yields `null`, shown as
+  "Not measured", and is excluded from averages; `n_judged` says how many questions each
+  number rests on.
+- **Deltas** compare a run only with the previous run on the same eval set.
+- **Provenance** is stored per run (`run_config`): judge, generator, embedding and reranker
+  models, chunking, eval-set version, question count, duration. Runs from the first harness
+  (`harness_version` null) were scored differently and are hidden from the trend.
+- **Strategy comparison** (`POST /rag/compare`) runs each strategy on identical questions and
+  reports per-metric differences against a baseline. Under 10 questions it is labelled a
+  small sample; differences inside 0.02 are a tie.
+- **Agentic and council strategies** generate answers for at most five questions per run to
+  keep a local run to minutes; their retrieval metrics cover the whole set.

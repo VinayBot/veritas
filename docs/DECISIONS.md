@@ -1219,3 +1219,64 @@ New multi-section brief landed covering: Fix 1 (chat hang + chat vanishes on tab
   live reproduction below hits the same process a browser would. Ollama already has all four
   required models pulled (`gemma2:2b`, `llama-guard3:1b`, `llama3.2:3b`,
   `qwen2.5:7b-instruct`) — confirmed via `ollama list`, not assumed from the README.
+
+## Overhaul: three tabs, strategy registry, live streaming, memory-lean models
+
+Supersedes the navigation decisions in `docs/OVERHAUL_PLAN.md` (D1 and the six-tab layout);
+the plan's addendum records what changed after it was approved.
+
+**Three tabs, not six.** Workspace, Architecture, Evaluation. Dashboard, Knowledge Graph and
+Guardrails became views inside Evaluation (Usage + Corpus, Knowledge graph, Safety); their old
+addresses redirect to the view that absorbed them. Test Center was deleted; its self-check
+lives on Architecture and "load sample document" on the Workspace empty state.
+
+**Answer length is a button, not a guess.** Every question gets 3–4 lines. A "Deep reasoning"
+toggle asks for 7–8. The UI always sends the length explicitly; the phrasing-based detection
+in `app/agents/answer_style.py` only applies to API callers that send none. Small models
+ignore length instructions about a third of the time, so `tidy_answer` enforces it
+deterministically: it removes a trailing "References:" list, a sentence cut off by the token
+limit, and any sentence past the fourth (quick) or eighth (deep). It only ever removes
+sentences from the end; nothing is rewritten.
+
+**Answers stream as they are written.** Previously the full answer was generated, then
+replayed in chunks, so time-to-first-word equalled total time. `stream_complete` relays
+tokens through a ContextVar sink to the run's event log. The latency budget now applies to
+the first token, so a model that has started writing is not cut off. Trade-off, stated
+plainly: the output guardrail runs after generation, so text is visible before that check.
+If the guardrail or `tidy_answer` changes the text, a `replace` event swaps it on screen.
+Document PII is masked at ingestion, before any model sees it, which is what makes this
+acceptable; a deployment that cannot show unchecked text should disable streaming in
+`_synthesize_direct`.
+
+**Chat goes first.** Ollama serves one request at a time, so judge scoring and graph
+extraction queued ahead of a question made it wait 8–17 s. Work marked background (scoring,
+enrichment, jobs) now holds before each model call while an answer is being generated, and a
+background call already in flight is abandoned and restarted afterwards
+(`app/llm/client.py`, `interactive()` / `_preemptible`). Measured on this machine right after
+an upload: quick answers went from ~11 s to 2–4 s.
+
+**One answer model in memory.** Startup used to warm every configured model, including the
+7B council member: about 11 GB resident on a 16 GB laptop, which pushed it into swap. Now
+only the answer model and the 1B safety model are warmed, `keep_alive` is 10 minutes, and
+escalation to a "stronger" model is off unless `ESCALATE_TO_STRONGER_MODEL=true`. Council
+members load on demand. The semantic cache key includes the answer model so a switch never
+serves the previous model's text.
+
+**Llama Guard is called the way it was trained.** It was being given a hand-written
+"Task: check if there is unsafe content…" prompt as a user message, and it flagged ordinary
+policy answers as unsafe (9 of 199 output checks in the dev database, all false positives on
+inspection). It now receives real user/assistant turns through the chat API, with the actual
+question as the user turn. Separately, categories that depend on where a statement came from
+(S5 defamation, S6 specialised advice, S7 privacy, S8 IP) are logged as "escalate" on the
+output layer instead of replacing the answer: a context-free 1B classifier cannot know the
+sentence is a quotation from the user's own document. Violence, crime, weapons, hate,
+self-harm and sexual content still block. The input layer is unchanged.
+
+**Improvement is measured, never asserted.** Accepting a recommendation stores the strategy
+that was in use; "Measure the improvement" runs both on the same eval set and shows the
+deltas with n. With fewer than 10 questions the result is labelled a small sample.
+
+**Architecture animation and honesty.** Bright packets and node ripples come only from trace
+events. Two things are decoration and say so in the legend/banner: the faint dashes that show
+an edge's direction, and "Play request path", a hand-started walkthrough of declared request
+edges.

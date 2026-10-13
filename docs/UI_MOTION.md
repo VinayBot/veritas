@@ -231,3 +231,28 @@ blocking call, which needed new progress/error UI. New motion, and one fix:
   as a known gap: "does not yet branch on `useReducedMotion()`") now does:
   `isActive = data.status === 'running' && !reduced`. Same component, same animation, the one
   line of handling that was missing.
+
+
+## Motion language after the overhaul
+
+One set of durations and one entrance curve, defined once in `src/styles/tokens.css` and
+mirrored in `src/lib/motion.ts`: **120 ms** micro (hover, press), **200 ms** standard (panels,
+list rows), **320 ms** large (page and tab changes), all on `cubic-bezier(0.32, 0.72, 0, 1)`.
+Lists stagger 30 ms apart for the first ten rows only. Only `transform` and `opacity` are
+animated on recurring motion.
+
+| Where | Motion | Driven by |
+| --- | --- | --- |
+| Top navigation, Evaluation views | A pill slides between tabs (shared layout) | Navigation |
+| Analyst robot | Idle hover, working scan, success and error poses | Real ingest / answer state |
+| Answers | Text appears as the model writes it; scoring shows a skeleton | Token stream |
+| KPI cards | Numbers count up when the value changes meaningfully | New data |
+| Charts | Draw in once, when first scrolled into view | Visibility |
+| Architecture packets, node ripple and bloom | A packet per real hop, speed from measured latency | Trace events only |
+| Architecture edge dashes, aurora backdrop | Slow ambient drift | Decoration — stated in the legend |
+| "Play request path" | Steps through declared request edges | A button; labelled an illustration |
+| Knowledge graph | Particle torus; entities light up in traversal order | A real graph query |
+
+`prefers-reduced-motion` collapses CSS animation globally (`index.css`) and every Framer
+Motion transition checks `useReducedMotion`; packets, ripples and chart animation are skipped
+while state changes still show.

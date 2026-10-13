@@ -8,6 +8,128 @@ brief, that's stated plainly rather than reworded into a pass.
 
 Dates/numbers below are from the final verification pass of this build session.
 
+## 0. UI, architecture and multi-RAG overhaul (branch `feat/ui-arch-eval-kg`)
+
+This section is the current state. Sections 1–6 below are the earlier build's report and are
+kept for history; where they disagree with this section (tab list, test counts), this
+section is right.
+
+The brief changed after the plan was approved (three tabs instead of six, a dark "samurai"
+theme, 3–4 line answers with a Deep reasoning toggle, speed and memory as requirements). See
+the addendum in `docs/OVERHAUL_PLAN.md`.
+
+### 0.1 Automated checks (final run of this session)
+
+| Check | Result |
+| --- | --- |
+| Backend `pytest` (real Ollama, real models, no mocks of the pipeline) | **352 passed, 1 failed** in 18m33s. The failure was `test_graph_endpoint_with_query_links_entities`, which queried the shared graph with an 8-character prefix and sometimes linked another document's entity first (it failed 1 of 2 isolated re-runs). The test now queries the full name and passed 3 of 3 isolated runs. The full suite was not run again after that one-line test change |
+| Backend `ruff check` / `ruff format --check` | clean |
+| Frontend `tsc -b` | clean |
+| Frontend `oxlint` | 0 errors, 38 warnings (fast-refresh export hints, set-state-in-effect) — not fixed |
+| Frontend `vitest` | 28 passed |
+| Frontend `vite build` | succeeds; chunks over 500 kB remain (see 0.5) |
+| Playwright, chromium, against the real backend | **18 passed**: `app.spec.ts` 6, `architecture.spec.ts` 7, `ingestion.spec.ts` 5 |
+
+### 0.2 What was asked, and whether it is done
+
+| Item | Status | Evidence / note |
+| --- | --- | --- |
+| Exactly three tabs: Workspace, Architecture, Evaluation | Done | `app.spec.ts` asserts the nav and the redirects from `/app/dashboard`, `/graph`, `/guardrails`, `/test-center` |
+| Dashboard, Knowledge Graph and Guardrails merged into Evaluation | Done | Usage + Corpus, Knowledge graph, Safety views; each asserted in `app.spec.ts` |
+| Knowledge graph with an "ask" feature | Done | Highlights the real traversal and streams a real answer via the graph strategy. The answer path is not covered by an automated test |
+| Quick answers of 3–4 lines; Deep reasoning button for 7–8 | Done | `tests/test_answer_style.py` (length enforcement), `app.spec.ts` (≤4 and ≤8 sentences in the real UI) |
+| Fast responses | Improved, measured | See 0.3 |
+| Easy switching of local model | Done | Header picker lists installed Ollama models only; `app.spec.ts` checks each against Ollama's own list |
+| Easy switching of RAG strategy | Done | Header picker, per question; `app.spec.ts` asks through a switched strategy |
+| Recommendation after upload, easy to accept | Done | Card with reasons quoting measured numbers; one button; `tests/test_rag_advisor.py`, `app.spec.ts` |
+| See the improvement after accepting | Done | "Measure the improvement" runs both strategies on the same eval set. Verified by a real run through the API (0.3); the button itself is only asserted to appear, not clicked, in E2E |
+| Chat and file history | Done | Per-document history persists in the browser (`app.spec.ts` reload check); documents are listed in the switcher and Corpus view. History is per browser, not synced to the server |
+| New robot animation | Done | `components/robot/analyst-bot.tsx`, states driven by real ingest/answer status |
+| More animation on Architecture | Done | Node ripple, edge direction dashes, aurora backdrop, "Play request path" walkthrough; decoration is labelled as such |
+| Evaluation as a professional dashboard with charts | Done | ECharts: run trend, strategy radar, latency bars, volume/quality by day, strategy mix, stage timings; each has a "View as table" fallback |
+| Lower memory use / stop the laptop crashing | Changed, partly measured | See 0.3. The crash itself was not reproduced or re-tested |
+| One more local model for a 16 GB Mac | Done | `gemma3:4b` pulled and set as the answer model in `.env` |
+| Multi-RAG strategy registry (8 strategies), comparison mode, per-document advisor | Done | `backend/app/rag_engines/`; `test_rag_api.py`, `test_rag_compare.py`, `test_rag_advisor.py` |
+| Code-derived architecture graph, health strip, self-check | Done | `test_architecture_api.py` verifies every declared edge against real imports |
+| Design tokens, one motion language, command palette, reduced motion | Done | `styles/tokens.css`, `lib/motion.ts`; palette and reduced motion each have one E2E check |
+
+### 0.3 Measured in this session (MacBook, 16 GB, Ollama, sample policy PDF)
+
+| What | Before | After |
+| --- | --- | --- |
+| Quick answer right after an upload (graph extraction running), wall clock in the browser | 11.4 s | 2.9–3.9 s (`llama3.2:3b`) |
+| Quick answer, warm, `llama3.2:3b` | not streamed; full answer after 3–6 s | first word 0.9–2.6 s, complete 3.3–4.1 s |
+| Quick answer, warm, `gemma3:4b` (current setting) | — | first word 2.5–2.8 s, complete 4.7–6.9 s |
+| Deep answer, warm, `gemma3:4b` | — | first word 2.6–5.6 s, complete 10.3–12.7 s |
+| First question after a restart | 11.9 s to first word | 4.8 s to first word |
+| Models resident after startup (`ollama ps`) | every configured model including the 7B one — roughly 10–11 GB, estimated from the models' sizes, not measured | `gemma3:4b` 2.8 GB + `llama-guard3:1b` 1.7 GB |
+| Strategy comparison, 2 strategies | 141 s on 3 questions; the backend log for that server session (comparison plus E2E runs) held 51 model calls that timed out | 25 s on 4 questions; 0 timeouts in that session's log |
+| Harmless answers replaced with "I can't provide that response" by the output guard | 9 of 199 logged output checks, plus 3 more seen live during this work | 0 in the final E2E and API runs (not a large sample) |
+
+One real before/after comparison (Hybrid → Hybrid + Rerank, eval set v2, n = 4, labelled a
+small sample by the app): faithfulness 0.65 → 0.85 (n = 2), correctness 0.58 → 0.63,
+relevance unchanged, retrieval metrics unchanged, median time 7.3 s → 7.2 s. Four questions
+cannot support a conclusion; it is here to show the feature produces real numbers.
+
+`gemma3:4b` is slower than `llama3.2:3b` by one to two seconds per quick answer. It was
+chosen because it followed the length and citation instructions more reliably in the
+side-by-side runs (65–75 words with markers, against 39–71 words and often none). If speed
+matters more, set `DEFAULT_LLM_MODEL=ollama/llama3.2:3b`.
+
+### 0.4 Bugs found and fixed while verifying
+
+1. Llama Guard was called with a hand-written prompt instead of real conversation turns, and
+   blocked ordinary answers. Fixed; test added.
+2. Background scoring and graph extraction made a question wait behind them. Fixed with a
+   priority gate and preemption.
+3. Judge calls were sent in parallel to a server that answers one at a time and timed out
+   while queued, turning scores into "not measured". Fixed with an in-process queue.
+4. A document's graph view counted relations from every other copy of the document
+   (107 relations on 51 entities). Fixed; test added. The corrected view was not re-inspected
+   in the browser afterwards.
+5. A council revision re-ran the whole council and exceeded the per-question call limit.
+   Now the chairman alone revises.
+6. The semantic cache could serve an answer written by a previously selected model. The
+   model is now part of the cache key.
+7. Deep answers could end mid-sentence at the token limit. Trimmed to the last full sentence.
+8. The Architecture drawer's first Escape closed a tooltip instead of the drawer.
+
+### 0.5 Not done, not verified, or weaker than before — stated plainly
+
+- **E2E coverage was reduced.** Five old specs were deleted because they targeted pages that
+  no longer exist (chat, smoke, evaluation dashboard, knowledge-graph torus, workspace
+  scroll). The replacement is six tests. Lost: the scroll regression checks at several
+  viewport sizes, the WebKit run, the UI rendering of a blocked prompt-injection and of an
+  abstention, the torus click/Escape interaction, and visual snapshots.
+- **Not covered by any automated test:** the model-settings dialog (judge, council, embedding,
+  reranker), the embedding switch and re-index flow in the UI, the comparison dialog, running
+  an evaluation from the Evaluation tab with live progress and cancel, "ask the graph", the
+  red-team button, exports to PNG/SVG, the light theme.
+- **Not measured:** frame rate, Lighthouse, an axe accessibility audit, colour contrast.
+  Accessibility evidence is limited to keyboard paths exercised in three E2E tests.
+- **`make eval` and `make redteam` were not re-run** this session. The red-team tests in
+  pytest pass. The guard change affects only the output layer for four categories; its effect
+  on the published block rate was not re-measured.
+- **Streaming shows text before the output guardrail has checked it** (see
+  `docs/DECISIONS.md`). If the check changes the text, it is replaced on screen.
+- **PII masking is uneven in the sample document:** one answer showed a person's name in
+  clear text next to masked `<PERSON_…>` tokens. Observed, not investigated.
+- **Citations carry no page numbers**; page positions are not recorded at ingestion.
+- **Chat history lives in the browser only.** Clearing site data loses it; another browser
+  does not see it. Stored reports remain on the server.
+- **Literal colours remain** in the robot illustration, the three.js particle scene and the
+  2D graph fallback. Everything else reads `styles/tokens.css`.
+- **Bundle size:** three chunks are over 500 kB (app shell 717 kB, Evaluation 644 kB, graph
+  renderer 673 kB, minified). Architecture and Evaluation load on first visit; ECharts and
+  three.js were not split further.
+- **Neo4j and Qdrant settings exist but are not wired**; NetworkX and ChromaDB are what runs.
+- **Small eval sets:** the bundled sample has four chunks, so generated eval sets have 3–4
+  questions and every comparison on it is a small sample.
+- **Docker was not re-verified** after these changes.
+- **The 7B model (`qwen2.5:7b-instruct`) is still installed** (4.7 GB on disk) but no longer
+  loaded unless selected. It was not deleted.
+- **Lint warnings** (38) were left in place.
+
 ## 1. Backend — automated test suite
 
 | Check | Result | Evidence |

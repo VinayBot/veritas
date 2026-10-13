@@ -23,7 +23,7 @@ If you only read one section, read §3.
 | `vitest` | Passes — 2 files, 7 tests (needs a backend on :8000; the contract test fetches it) |
 | `tsc -b && vite build` | Passes — eager bundle 216.89 kB gzip |
 | `make no-stubs` | Passes |
-| `pytest` | See §1.4 — run in progress when this was written |
+| `pytest` | 256 passed, 1 failed in 12m21s — `test_cancel_during_queued_marks_cancelled_not_failed`, a timing race already logged as a known flake |
 | Playwright E2E | Not run in Phase 0 (needs minutes of real LLM time; will run before Phase 1 starts) |
 | `make eval` / `make redteam` | Not run in Phase 0 |
 
@@ -100,7 +100,7 @@ store/                 app-store
   the brief's "11").
 - Nothing tests the Test Center: no backend test for its routes, no E2E spec.
 
-Backend baseline for this plan: _filled in at the end of Phase 0 — see the hand-over message._
+Backend baseline for this plan: 256 passed, 1 failed (the cancel-while-queued race above).
 
 ---
 
@@ -558,3 +558,23 @@ canvas (six files and two vitest files, 1,540 lines); under D3 the demo tour and
 analyst panel (their data moves into the new panel and the Dashboard); `recommend_mode` and
 its two response fields; the unused `components/showcase/` (841 lines), `glow-card`,
 `tilt-card`; the `gsap` dependency; the `mode` and `council` chat request fields under D8.
+
+---
+
+## Addendum — changes after approval
+
+The owner changed the brief while the work was in progress. Where this conflicts with the
+plan above, this addendum wins.
+
+1. **Navigation is three tabs** (Workspace, Architecture, Evaluation), not six. Dashboard,
+   Knowledge Graph and Guardrails are views inside Evaluation. D1 is void.
+2. **Theme** is a dark "samurai" palette (ink, crimson, gold, steel cyan) with a light
+   counterpart; it lives entirely in `frontend/src/styles/tokens.css`.
+3. **Answer length**: 3–4 lines by default, 7–8 with the "Deep reasoning" toggle.
+4. **Speed and memory** became first-class requirements: token streaming, chat priority over
+   background model calls, and one resident answer model.
+5. **The analyst robot** was replaced by a new animated component
+   (`frontend/src/components/robot/analyst-bot.tsx`).
+6. **"Measure the improvement"** was added to the recommendation card.
+
+What was implemented, what was not, and what was measured is in `docs/VALIDATION_REPORT.md`.
