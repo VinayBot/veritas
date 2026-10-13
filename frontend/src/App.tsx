@@ -27,7 +27,7 @@ function App() {
                 <Route path="/app/architecture" element={<Suspense fallback={tabFallback}><ArchitecturePage /></Suspense>} />
                 <Route path="/app/evaluation" element={<Suspense fallback={tabFallback}><EvaluationPage /></Suspense>} />
                 {/* Three tabs only. Former tabs land on the Evaluation view that absorbed them. */}
-                <Route path="/app/dashboard" element={<Navigate to="/app/evaluation?view=usage" replace />} />
+                <Route path="/app/dashboard" element={<Navigate to="/app/evaluation" replace />} />
                 <Route path="/app/graph" element={<Navigate to="/app/evaluation?view=graph" replace />} />
                 <Route path="/app/guardrails" element={<Navigate to="/app/evaluation?view=safety" replace />} />
                 <Route path="/app/test-center" element={<Navigate to="/app/architecture" replace />} />

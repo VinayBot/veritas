@@ -31,12 +31,7 @@ from app.chunking.models import ChunkRow
 from app.core.config import get_settings
 from app.core.db import session_scope
 from app.evaluation.datasets import EvalItem
-from app.evaluation.judge import (
-    citation_validity,
-    score_correctness,
-    score_faithfulness,
-    score_relevancy,
-)
+from app.evaluation.judge import citation_validity, score_all
 from app.evaluation.metrics.retrieval import RetrievalMetricsAccumulator
 from app.ingestion.models import Document
 from app.privacy.detector import detect
@@ -46,8 +41,11 @@ from app.rag_engines.variants import build_variant, has_variant
 
 # Strategies that need nothing beyond what ingestion already builds. A run can ask for any
 # registered strategy; these are what it runs when it does not say.
-DEFAULT_STRATEGIES = ("hybrid", "hybrid_rerank", "hyde", "graph_rag", "agentic")
-MAX_AGENT_SAMPLES = 5
+DEFAULT_STRATEGIES = ("hybrid", "hybrid_rerank", "graph_rag")
+MAX_AGENT_SAMPLES = 3
+# A run uses at most this many questions from an eval set, so two or three strategies finish
+# in a minute or two on a laptop. Results always carry the n they rest on.
+MAX_EVAL_QUESTIONS = 5
 HARNESS_VERSION = 2
 
 RELEVANCE_OVERLAP_THRESHOLD = 0.3
@@ -204,18 +202,37 @@ async def _truth_texts(chunk_ids: set[str]) -> dict[str, str]:
         return dict(rows.all())
 
 
+def pick_questions(items: list[EvalItem], limit: int) -> list[EvalItem]:
+    """At most `limit` questions, taken in turn from each question type so a short run still
+    covers factual, comparison, unanswerable and PII questions rather than the first type
+    only. Deterministic: the same set always yields the same questions."""
+    if len(items) <= limit:
+        return list(items)
+    by_category: dict[str, list[EvalItem]] = {}
+    for item in items:
+        by_category.setdefault(item.category, []).append(item)
+    picked: list[EvalItem] = []
+    while len(picked) < limit:
+        for queue in by_category.values():
+            if queue and len(picked) < limit:
+                picked.append(queue.pop(0))
+    return picked
+
+
 async def evaluate_strategy(
     strategy_id: str,
     document_id: str,
     eval_items: list[EvalItem],
     *,
     on_sample: Callable[[int, int], Awaitable[None]] | None = None,
+    on_step: Callable[[int, int, str], Awaitable[None]] | None = None,
     checkpoint: Checkpoint | None = None,
 ) -> ConfigResult:
     """Runs one strategy over the question set and scores it. The strategy must be runnable
     for this document (index variant built, graph present) — `run_benchmark` sees to that."""
     spec = get_strategy(strategy_id)
-    sample = eval_items[:MAX_AGENT_SAMPLES] if spec.kind == "agentic" else eval_items
+    limit = MAX_AGENT_SAMPLES if spec.kind == "agentic" else MAX_EVAL_QUESTIONS
+    sample = pick_questions(eval_items, limit)
     truth = await _truth_texts({cid for item in sample for cid in item.source_chunk_ids})
 
     accumulator = RetrievalMetricsAccumulator(k=5)
@@ -230,6 +247,8 @@ async def evaluate_strategy(
     for index, item in enumerate(sample):
         if checkpoint is not None:
             checkpoint()
+        if on_step is not None:
+            await on_step(index, len(sample), "answering")
         turn = await answer_question(
             item.question,
             document_id,
@@ -242,12 +261,18 @@ async def evaluate_strategy(
         item_truth = {cid: truth[cid] for cid in item.source_chunk_ids if cid in truth}
         accumulator.add(relevance_ranking(turn.retrieved, item_truth), set(item_truth))
 
+        if on_step is not None:
+            await on_step(index, len(sample), "scoring")
         cited_context = "\n\n".join(c["text"] for c in turn.citations)
-        faithfulness = (
-            await score_faithfulness(turn.answer, cited_context) if turn.citations else None
+        judged = await score_all(
+            turn.answer,
+            item.question,
+            context=cited_context if turn.citations else None,
+            ground_truth=item.ground_truth_answer,
         )
-        relevancy = await score_relevancy(turn.answer, item.question)
-        correctness = await score_correctness(turn.answer, item.ground_truth_answer, item.question)
+        faithfulness = judged["faithfulness"]
+        relevancy = judged["relevancy"]
+        correctness = judged["correctness"]
         citation_score = citation_validity(turn.answer, len(turn.retrieved) or 1)
         for key, value in (
             ("faithfulness", faithfulness),
@@ -332,10 +357,13 @@ async def prepare_strategy(
 
 
 def strategy_concurrency() -> int:
-    """How many strategies run side by side: one on the 8 GB tier (they queue), two on 16 GB.
-    Local model inference is serialized either way (app/core/inference_lock.py); what runs in
-    parallel is the calls to Ollama."""
-    return 1 if get_settings().hardware_tier == "8gb" else 2
+    """How many strategies are evaluated side by side. Never more than the model server takes
+    at once (LLM_MAX_CONCURRENCY, one by default): interleaving two strategies on a server
+    that answers one request at a time finishes no sooner and makes every measured latency
+    include the other strategy's queueing."""
+    settings = get_settings()
+    tier_limit = 1 if settings.hardware_tier == "8gb" else 2
+    return max(1, min(tier_limit, settings.llm_max_concurrency))
 
 
 async def _measure_pii_leak_count(document_id: str) -> int:
@@ -371,7 +399,7 @@ async def run_strategies(
     total_samples = sum(
         min(len(eval_items), MAX_AGENT_SAMPLES)
         if get_strategy(s).kind == "agentic"
-        else len(eval_items)
+        else min(len(eval_items), MAX_EVAL_QUESTIONS)
         for s in strategy_ids
     )
     done = 0
@@ -395,8 +423,22 @@ async def run_strategies(
                     fraction = done / max(total_samples, 1)
                 await progress(fraction, f"{name}: question {index} of {of}")
 
+            async def on_step(index: int, of: int, what: str) -> None:
+                # Reported before the work, so the bar moves and says what is happening
+                # instead of sitting at 0% until the first question is completely done.
+                async with lock:
+                    fraction = (done + (0.15 if what == "answering" else 0.7)) / max(
+                        total_samples, 1
+                    )
+                await progress(fraction, f"{name}: {what} question {index + 1} of {of}")
+
             return await evaluate_strategy(
-                strategy_id, document_id, eval_items, on_sample=on_sample, checkpoint=checkpoint
+                strategy_id,
+                document_id,
+                eval_items,
+                on_sample=on_sample,
+                on_step=on_step,
+                checkpoint=checkpoint,
             )
 
     return list(await asyncio.gather(*(one(s) for s in strategy_ids)))

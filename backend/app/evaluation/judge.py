@@ -78,6 +78,68 @@ async def score_correctness(answer: str, ground_truth: str, question: str = "") 
     )
 
 
+_COMBINED_PROMPT = (
+    "You are grading an answer. Give each score as a whole number from 0 to 10.\n\n"
+    "Question: {question}\n\nAnswer: {answer}\n{extras}\n"
+    "Scores to give:\n{criteria}\n\n"
+    "Reply with exactly one line per score in the form `name: number` and nothing else."
+)
+_CRITERIA = {
+    "faithfulness": (
+        "faithfulness — how well every claim in the answer is directly supported by the "
+        "context (10 = every claim explicitly supported, 0 = none, or it contradicts it)"
+    ),
+    "relevancy": (
+        "relevancy — how directly and completely the answer addresses the question, "
+        "regardless of whether it is correct"
+    ),
+    "correctness": (
+        "correctness — how consistent the answer's meaning is with the reference answer "
+        "(same meaning, not necessarily the same wording)"
+    ),
+}
+
+
+async def score_all(
+    answer: str,
+    question: str,
+    *,
+    context: str | None = None,
+    ground_truth: str | None = None,
+) -> dict[str, float | None]:
+    """Faithfulness, relevancy and correctness from one judge call instead of three — the
+    same rubric wording as the single-score functions, a third of the model time. A score is
+    only asked for when what it needs is present (context for faithfulness, a reference for
+    correctness); anything not asked for, or missing from the reply, is None."""
+    wanted = ["relevancy"]
+    extras = ""
+    result: dict[str, float | None] = {"faithfulness": None, "relevancy": None, "correctness": None}
+    if context and context.strip():
+        if is_abstention(answer):
+            result["faithfulness"] = 1.0  # declining makes no unsupported claim
+        else:
+            wanted.insert(0, "faithfulness")
+            extras += f"\nContext:\n{context[:6000]}\n"
+    if ground_truth and ground_truth.strip():
+        wanted.append("correctness")
+        extras += f"\nReference answer: {ground_truth}\n"
+    prompt = _COMBINED_PROMPT.format(
+        question=question,
+        answer=answer,
+        extras=extras,
+        criteria="\n".join(f"- {_CRITERIA[name]}" for name in wanted),
+    )
+    try:
+        raw = await complete(prompt, model=judge_model(), max_tokens=40, temperature=0.0)
+    except LlmUnavailableError:
+        return result
+    for name in wanted:
+        match = re.search(rf"{name}\W*?(\d+(?:\.\d+)?)", raw, re.IGNORECASE)
+        if match:
+            result[name] = max(0.0, min(1.0, float(match.group(1)) / 10))
+    return result
+
+
 def is_abstention(answer: str) -> bool:
     lowered = answer.lower()
     return any(phrase in lowered for phrase in _ABSTENTION_PHRASES)

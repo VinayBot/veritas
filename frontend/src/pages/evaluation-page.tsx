@@ -1,7 +1,7 @@
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useMemo } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { Activity, FlaskConical, Library, Share2, ShieldCheck, type LucideIcon } from 'lucide-react'
+import { Activity, Share2, ShieldCheck, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Page, PageHeader, Panel } from '@/components/ui/page'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -10,19 +10,16 @@ import { QualitySection } from '@/components/evaluation/QualitySection'
 import { UsageSection } from '@/components/evaluation/UsageSection'
 import { GraphSection } from '@/components/evaluation/GraphSection'
 import { SafetySection } from '@/components/evaluation/SafetySection'
-import { CorpusSection } from '@/components/evaluation/CorpusSection'
 import { useAppStore } from '@/store/app-store'
 import { DURATION, EASE_ENTER, SPRING_SOFT } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 
-type View = 'quality' | 'usage' | 'graph' | 'safety' | 'corpus'
+type View = 'usage' | 'graph' | 'safety'
 
 const VIEWS: { id: View; label: string; icon: LucideIcon; blurb: string; needsDocument: boolean }[] = [
-  { id: 'quality', label: 'Quality', icon: FlaskConical, blurb: 'Measured answer and retrieval quality per strategy, from evaluation runs on questions with known answers.', needsDocument: true },
-  { id: 'usage', label: 'Usage', icon: Activity, blurb: 'What real questions looked like: volume, speed, quality and failures.', needsDocument: false },
+  { id: 'usage', label: 'Usage', icon: Activity, blurb: 'What real questions looked like — volume, speed, quality — and how each strategy measures up on this document.', needsDocument: false },
   { id: 'graph', label: 'Knowledge graph', icon: Share2, blurb: 'The entities and relations read from the document. Ask it a question and watch the path light up.', needsDocument: true },
   { id: 'safety', label: 'Safety', icon: ShieldCheck, blurb: 'Guardrail decisions on real questions, and an attack suite to run against them.', needsDocument: false },
-  { id: 'corpus', label: 'Corpus', icon: Library, blurb: 'Every document that has been ingested.', needsDocument: false },
 ]
 
 export function EvaluationPage() {
@@ -32,7 +29,7 @@ export function EvaluationPage() {
   const reduced = useReducedMotion()
   const requested = params.get('view')
   const view = VIEWS.find((v) => v.id === requested) ?? VIEWS[0]
-  const setView = (id: View) => setParams(id === 'quality' ? {} : { view: id }, { replace: true })
+  const setView = (id: View) => setParams(id === 'usage' ? {} : { view: id }, { replace: true })
 
   const commands = useMemo<CommandPaletteItem[]>(
     () =>
@@ -41,7 +38,7 @@ export function EvaluationPage() {
         label: `Evaluation: ${v.label}`,
         group: 'Navigate',
         icon: <v.icon className="size-4" />,
-        onSelect: () => navigate(v.id === 'quality' ? '/app/evaluation' : `/app/evaluation?view=${v.id}`),
+        onSelect: () => navigate(v.id === 'usage' ? '/app/evaluation' : `/app/evaluation?view=${v.id}`),
       })),
     [navigate],
   )
@@ -109,29 +106,49 @@ export function EvaluationPage() {
             <Panel>
               <EmptyState
                 title="Pick a document first"
-                description="This view is about one document. Upload one in Workspace, or choose one from the Corpus view."
+                description="This view is about one document. Upload one in Workspace, or choose one with the document switcher at the top right."
                 action={
-                  <>
-                    <Button size="sm" onClick={() => navigate('/app')}>
-                      Go to Workspace
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => setView('corpus')}>
-                      Open Corpus
-                    </Button>
-                  </>
+                  <Button size="sm" onClick={() => navigate('/app')}>
+                    Go to Workspace
+                  </Button>
                 }
               />
             </Panel>
-          ) : view.id === 'quality' ? (
-            <QualitySection documentId={documentId!} />
           ) : view.id === 'usage' ? (
-            <UsageSection />
+            <div className="flex flex-col gap-10">
+              <UsageSection />
+              <section aria-labelledby="quality-heading" className="flex flex-col gap-6">
+                <div>
+                  <h2 id="quality-heading" className="blade-edge font-display text-lg font-semibold tracking-tight text-foreground">
+                    Measured quality
+                  </h2>
+                  <p className="mt-3 max-w-3xl text-sm text-muted-foreground">
+                    Each strategy answers the same few questions with known answers from{' '}
+                    <span className="text-foreground">{documentName ?? 'the selected document'}</span>, and the results are scored. A run uses at most five
+                    questions so it finishes in a minute or two.
+                  </p>
+                </div>
+                {documentId ? (
+                  <QualitySection documentId={documentId} />
+                ) : (
+                  <Panel>
+                    <EmptyState
+                      title="Pick a document to measure quality on"
+                      description="Upload one in Workspace, or choose one with the document switcher at the top right."
+                      action={
+                        <Button size="sm" onClick={() => navigate('/app')}>
+                          Go to Workspace
+                        </Button>
+                      }
+                    />
+                  </Panel>
+                )}
+              </section>
+            </div>
           ) : view.id === 'graph' ? (
             <GraphSection documentId={documentId!} />
-          ) : view.id === 'safety' ? (
-            <SafetySection />
           ) : (
-            <CorpusSection />
+            <SafetySection />
           )}
         </motion.div>
       </AnimatePresence>

@@ -249,3 +249,146 @@ body {
     transform: translate3d(-34%, -20%, 0) scale(1.15);
   }
 }
+
+/* ---- Motion pass: entrances, live pulses, Architecture backdrop ---- */
+/* Cards and panels rise into place; siblings in a `.stagger` grid follow 45 ms apart. */
+.rise-in {
+  animation: rise-in 420ms var(--ease-enter) both;
+}
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.stagger > :nth-child(2) { animation-delay: 45ms; }
+.stagger > :nth-child(3) { animation-delay: 90ms; }
+.stagger > :nth-child(4) { animation-delay: 135ms; }
+.stagger > :nth-child(5) { animation-delay: 180ms; }
+.stagger > :nth-child(6) { animation-delay: 225ms; }
+
+/* A light sheen crosses a card once when the pointer arrives. */
+.lacquer-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 40%, color-mix(in srgb, var(--color-gold) 16%, transparent) 50%, transparent 60%);
+  background-size: 250% 100%;
+  background-position: 120% 0;
+  opacity: 0;
+}
+.lacquer-card:hover::after {
+  opacity: 1;
+  animation: sheen 900ms var(--ease-enter) both;
+}
+@keyframes sheen {
+  to {
+    background-position: -40% 0;
+  }
+}
+
+/* A halo that leaves a healthy status dot: "this was checked and is alive". */
+.dot-live {
+  position: relative;
+}
+.dot-live::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: inherit;
+  animation: dot-ping 2.4s var(--ease-enter) infinite;
+}
+@keyframes dot-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  70%,
+  100% {
+    transform: scale(3.2);
+    opacity: 0;
+  }
+}
+
+/* A control that is switched on breathes slightly. */
+.glow-pulse {
+  animation: glow-pulse 2.6s ease-in-out infinite;
+}
+@keyframes glow-pulse {
+  50% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--color-accent) 55%, transparent),
+      0 0 26px -2px color-mix(in srgb, var(--color-accent) 75%, transparent);
+  }
+}
+
+/* Architecture canvas: a faint blueprint grid drifting behind the diagram, and a single
+   scan line that sweeps down when the diagram loads or a walkthrough starts. */
+.arch-grid {
+  position: absolute;
+  inset: -40px;
+  pointer-events: none;
+  opacity: 0.22;
+  background-image:
+    linear-gradient(to right, var(--color-border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-border) 1px, transparent 1px);
+  background-size: 40px 40px;
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 78%);
+  animation: grid-drift 24s linear infinite;
+  will-change: transform;
+}
+@keyframes grid-drift {
+  to {
+    transform: translate3d(40px, 40px, 0);
+  }
+}
+.scan-sweep {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 28%;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--color-live) 14%, transparent) 85%, color-mix(in srgb, var(--color-live) 70%, transparent));
+  border-bottom: 1px solid var(--color-live);
+  animation: scan-sweep 1.5s var(--ease-enter) both;
+  will-change: transform, opacity;
+}
+@keyframes scan-sweep {
+  0% {
+    transform: translate3d(0, -100%, 0);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(0, 360%, 0);
+    opacity: 0;
+  }
+}
+
+/* An answer being written ends in a soft caret. */
+.typing-caret::after {
+  content: '';
+  display: inline-block;
+  width: 0.5ch;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  border-radius: 1px;
+  background: var(--color-live);
+  animation: caret-blink 900ms steps(2, start) infinite;
+}
+@keyframes caret-blink {
+  to {
+    visibility: hidden;
+  }
+}

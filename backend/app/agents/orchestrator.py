@@ -46,7 +46,7 @@ from app.core.db import session_scope
 from app.core.tracing import trace_bus
 from app.council.service import run_council
 from app.evaluation.grounding import ground_answer
-from app.evaluation.judge import citation_validity, judge_model, score_faithfulness, score_relevancy
+from app.evaluation.judge import citation_validity, judge_model, score_all
 from app.guardrails.input import check_input
 from app.guardrails.retrieval import scan_hits
 from app.llm import client as llm_client
@@ -475,8 +475,11 @@ async def score_quality(turn: Turn) -> dict[str, Any]:
     )
     cited_context = "\n\n".join(str(c.get("text", "")) for c in turn.citations)
 
-    async def faithfulness() -> float | None:
-        return await score_faithfulness(turn.answer, cited_context) if turn.citations else None
+    async def judged() -> dict[str, float | None]:
+        # Relevancy and faithfulness from one judge call.
+        return await score_all(
+            turn.answer, turn.query, context=cited_context if turn.citations else None
+        )
 
     async def grounding() -> dict[str, Any] | None:
         if turn.outcome == "blocked" or not shown_context.strip():
@@ -484,9 +487,8 @@ async def score_quality(turn: Turn) -> dict[str, Any]:
         report = await ground_answer(turn.answer, shown_context, model=judge_model())
         return report.to_dict() if report else None
 
-    relevancy, faith, grounded = await _measure_all(
-        [score_relevancy(turn.answer, turn.query), faithfulness(), grounding()]
-    )
+    scores, grounded = await _measure_all([judged(), grounding()])
+    relevancy, faith = scores["relevancy"], scores["faithfulness"]
     measured = [v for v in (faith, relevancy, citation_score) if v is not None]
     return {
         "label": "estimated",

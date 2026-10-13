@@ -39,10 +39,9 @@ const INGESTION_STAGES: { id: string; title: string }[] = [
   { id: 'index', title: 'Index' },
   { id: 'graph', title: 'Graph' },
   { id: 'profile', title: 'Profile' },
-  { id: 'advisor', title: 'Advisor' },
 ]
 
-// Everything through "index" makes the document ready for chat; graph/profile/advisor are a
+// Everything through "index" makes the document ready for chat; graph and profile are a
 // separate background phase, so their fallback state is read off `enrichment_status`.
 const CRITICAL_PATH = new Set(['upload', 'parse', 'refine', 'pii_vault', 'chunk', 'embed', 'index'])
 const TAKING_LONGER_MS = 20_000
@@ -636,7 +635,7 @@ export function WorkspacePage() {
               title="Off: a quick answer of 3–4 lines. On: a fuller answer of 7–8 lines, which takes a little longer."
               className={cn(
                 'flex items-center gap-1.5 rounded-pill border px-3 py-1 text-xs font-medium transition-colors duration-micro',
-                detailMode === 'deep' ? 'border-accent bg-accent text-on-accent shadow-glow' : 'border-border text-muted-foreground hover:border-accent/50 hover:text-foreground',
+                detailMode === 'deep' ? 'glow-pulse border-accent bg-accent text-on-accent shadow-glow' : 'border-border text-muted-foreground hover:border-accent/50 hover:text-foreground',
               )}
             >
               <Brain className="size-3.5" aria-hidden="true" /> Deep reasoning
@@ -827,7 +826,9 @@ function MessageBubble({
         ) : message.errored ? (
           <span role="alert">{message.content}</span>
         ) : (
+          <span className={message.streaming ? 'typing-caret' : undefined}>
           <AnswerText content={message.content} citations={message.citations ?? []} grounding={grounding} hoveredChunk={hoveredChunk} onHoverChunk={onHoverChunk} />
+          </span>
         )}
       </div>
 

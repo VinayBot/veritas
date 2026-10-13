@@ -9,7 +9,8 @@ import { Segmented } from '@/components/ui/segmented'
 import { Textarea } from '@/components/ui/textarea'
 import { ComparisonView } from './ComparisonView'
 import { useJob } from '@/hooks/useJob'
-import { estimateComparison, getComparison, listDatasets, startComparison, type CompareParams } from '@/lib/api/client'
+import { AnalystBot } from '@/components/robot/analyst-bot'
+import { estimateComparison, generateDataset, getComparison, listDatasets, startComparison, type CompareParams } from '@/lib/api/client'
 import type { CompareEstimate, ComparisonResult, EvalDataset, Strategy } from '@/lib/api/types'
 import { cn } from '@/lib/utils'
 
@@ -51,6 +52,9 @@ export function CompareDialog({
   const [estimateError, setEstimateError] = useState<unknown>(null)
   const [jobId, setJobId] = useState<string | null>(null)
   const [result, setResult] = useState<ComparisonResult | null>(null)
+  const [preparing, setPreparing] = useState(false)
+  const [startedAt, setStartedAt] = useState<number | null>(null)
+  const [now, setNow] = useState(() => Date.now())
 
   const names = useMemo(() => Object.fromEntries(strategies.map((s) => [s.id, s.display_name])), [strategies])
 
@@ -75,6 +79,8 @@ export function CompareDialog({
     if (source === 'query') return query.trim() ? { document_id: documentId, strategies: selected, query: query.trim() } : null
     return datasetId ? { document_id: documentId, strategies: selected, dataset_id: datasetId } : null
   }, [documentId, selected, source, query, datasetId])
+  // No eval set yet: one is generated first, so "An eval set" is never a dead end.
+  const needsDataset = source === 'dataset' && datasets !== null && datasets.length === 0 && selected.length > 0
 
   // The estimate follows the selection, debounced so typing a question does not flood the API.
   useEffect(() => {
@@ -86,6 +92,13 @@ export function CompareDialog({
     }, 350)
     return () => window.clearTimeout(timer)
   }, [open, params, result])
+
+  const ticking = jobId !== null || preparing
+  useEffect(() => {
+    if (!ticking) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [ticking])
 
   const job = useJob(jobId, (finished) => {
     if (finished.status === 'done' && finished.result?.comparison_id) {
@@ -101,11 +114,20 @@ export function CompareDialog({
   })
 
   async function run() {
-    if (!params) return
+    if (!params && !needsDataset) return
+    setStartedAt(Date.now())
     try {
-      setJobId((await startComparison(params)).job_id)
+      let toRun = params
+      if (needsDataset) {
+        setPreparing(true)
+        const made = await generateDataset(documentId, 5)
+        toRun = { document_id: documentId, strategies: selected, dataset_id: made.dataset_id }
+      }
+      if (toRun) setJobId((await startComparison(toRun)).job_id)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not start the comparison')
+    } finally {
+      setPreparing(false)
     }
   }
 
@@ -127,12 +149,23 @@ export function CompareDialog({
               <Button variant="outline" size="sm" onClick={() => setResult(null)}>Compare something else</Button>
             </div>
           </>
-        ) : job.active ? (
-          <div className="flex flex-col gap-3 py-6" data-testid="compare-progress">
-            <ProgressBar value={job.progress} label="Comparison progress" tone="live" />
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>{job.message ?? 'Starting'} · {Math.round(job.progress * 100)}%</span>
-              <Button size="xs" variant="outline" onClick={job.cancel} data-testid="compare-cancel">Cancel</Button>
+        ) : job.active || preparing ? (
+          <div className="flex flex-col items-center gap-4 py-6" data-testid="compare-progress">
+            <AnalystBot state="working" size={110} />
+            <ProgressBar value={preparing ? undefined : job.progress} label="Comparison progress" tone="live" className="h-2" />
+            <div className="flex w-full items-center justify-between gap-3 text-xs text-muted-foreground">
+              <span className="min-w-0 truncate" aria-live="polite">
+                {preparing ? 'Writing 5 questions with known answers from the document…' : (job.message ?? 'Starting')}
+              </span>
+              <span className="flex shrink-0 items-center gap-3 tabular-nums">
+                {!preparing && <span className="text-foreground">{Math.round(job.progress * 100)}%</span>}
+                {startedAt !== null && <span>{Math.max(0, Math.round((now - startedAt) / 1000))}s</span>}
+                {!preparing && (
+                  <Button size="xs" variant="outline" onClick={job.cancel} data-testid="compare-cancel">
+                    Cancel
+                  </Button>
+                )}
+              </span>
             </div>
           </div>
         ) : (
@@ -144,13 +177,15 @@ export function CompareDialog({
                 onChange={setSource}
                 options={[
                   { value: 'query', label: 'One question' },
-                  { value: 'dataset', label: 'An eval set', disabled: (datasets?.length ?? 0) === 0, title: (datasets?.length ?? 0) === 0 ? 'No eval set exists for this document yet — generate one in Evaluation.' : undefined },
+                  { value: 'dataset', label: 'A set of questions (up to 5)', title: 'Questions with known answers, written from the document. At most five are used per run.' },
                 ]}
               />
               {source === 'query' ? (
                 <Textarea value={query} onChange={(e) => setQuery(e.target.value)} placeholder="The question every strategy will answer" aria-label="Question to compare on" className="min-h-16" />
               ) : datasets === null ? (
                 <LoadingState shape="lines" rows={1} label="Loading eval sets" />
+              ) : datasets.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No question set exists for this document yet. Five questions with known answers will be written first (about 20 seconds).</p>
               ) : (
                 <select
                   value={datasetId ?? ''}
@@ -236,7 +271,7 @@ export function CompareDialog({
 
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
-              <Button onClick={() => void run()} disabled={!params || !estimate} data-testid="compare-run">
+              <Button onClick={() => void run()} disabled={needsDataset ? false : !params || !estimate} data-testid="compare-run">
                 {estimate?.all_cached ? 'Open comparison' : 'Run comparison'}
               </Button>
             </div>

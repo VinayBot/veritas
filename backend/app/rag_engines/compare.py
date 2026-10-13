@@ -30,6 +30,7 @@ from app.evaluation import service as evaluation_service
 from app.evaluation.benchmark import (
     HARNESS_VERSION,
     MAX_AGENT_SAMPLES,
+    MAX_EVAL_QUESTIONS,
     Checkpoint,
     ConfigResult,
     Progress,
@@ -48,7 +49,7 @@ SMALL_SAMPLE = 10
 # Below this difference in the comparison score, two strategies are treated as tied.
 TIE_MARGIN = 0.02
 # Rough judge overhead per question (three short scoring calls), used only in estimates.
-JUDGE_SECONDS_PER_QUESTION = 6.0
+JUDGE_SECONDS_PER_QUESTION = 3.0  # one combined judge call
 MIN_MEASURED_RUNS = 3
 
 # Higher is better for all of these except latency and tokens.
@@ -145,7 +146,8 @@ async def estimate(
     rows = []
     for strategy_id in strategies:
         spec = get_strategy(strategy_id)
-        questions = min(n_questions, MAX_AGENT_SAMPLES) if spec.kind == "agentic" else n_questions
+        cap = MAX_AGENT_SAMPLES if spec.kind == "agentic" else MAX_EVAL_QUESTIONS
+        questions = min(n_questions, cap)
         is_cached = await _cached(cache_key(corpus, strategy_id, subject, run_config)) is not None
         measured, n_runs = await measured_latency_ms(strategy_id)
         use_measured = measured is not None and n_runs >= MIN_MEASURED_RUNS
@@ -161,7 +163,7 @@ async def estimate(
                 if use_measured
                 else "estimated",
                 "estimated_seconds": round(seconds),
-                "llm_calls": 0 if is_cached else questions * (spec.llm_calls + 3),
+                "llm_calls": 0 if is_cached else questions * (spec.llm_calls + 1),
             }
         )
     parallel = strategy_concurrency()
@@ -425,7 +427,7 @@ async def run_comparison(
                 if checkpoint is not None:
                     checkpoint()
                 name = get_strategy(strategy_id).display_name
-                await progress(index / len(to_run), f"{name}: answering")
+                await progress((index + 0.2) / len(to_run), f"{name}: answering")
                 state = await availability.check(get_strategy(strategy_id), document, llm)
                 if not state.available:
                     fresh.append(skipped(strategy_id, state.reason or "unavailable"))
@@ -463,7 +465,7 @@ async def run_comparison(
         and not results[s].get("skipped_reason")
         and not base_result.get("skipped_reason")
     }
-    n_queries = len(items) if dataset_id else 1
+    n_queries = min(len(items), MAX_EVAL_QUESTIONS) if dataset_id else 1
     payload = {
         "document_id": document_id,
         "dataset": dataset_meta,

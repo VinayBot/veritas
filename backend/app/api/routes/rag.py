@@ -68,6 +68,8 @@ class DefaultRequest(BaseModel):
 
 class PrepareRequest(BaseModel):
     document_id: str
+    """Graph strategies only: build the graph again even though one exists."""
+    rebuild: bool = False
 
 
 class StartedJob(BaseModel):
@@ -162,6 +164,10 @@ async def prepare_strategy(strategy_id: str, body: PrepareRequest) -> StartedJob
         raise _unknown(exc) from exc
     document = await _document(body.document_id)
     state = await availability.check(spec, document, await availability.llm_state())
+    if body.rebuild and spec.plan.graph:
+        # Read the graph again from scratch: after a failed first pass, or to pick up a
+        # better extraction model.
+        state = availability.Availability(available=False, reason=None, action="build_graph")
     if state.action is None:
         raise AppError(
             "nothing_to_prepare",
@@ -200,7 +206,11 @@ async def prepare_strategy(strategy_id: str, body: PrepareRequest) -> StartedJob
             )
         chunks = [Chunk(chunk_id=r.chunk_id, doc_id=r.doc_id, text=r.text) for r in rows]
         await ctx.progress(0.1, f"Extracting entities and relations from {len(chunks)} chunks")
-        stats = await build_graph_for_document(document.id, chunks)
+
+        async def relay(fraction: float, message: str) -> None:
+            await ctx.progress(0.1 + 0.85 * fraction, message)
+
+        stats = await build_graph_for_document(document.id, chunks, progress=relay)
         get_graph_store().save()
         await ingestion_service.set_graph_counts(document.id, stats["entities"], stats["triples"])
         await ctx.progress(1.0, f"{stats['entities']} entities, {stats['triples']} relations")

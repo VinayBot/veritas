@@ -111,11 +111,13 @@ def _parse_triples(raw: str) -> list[Triple]:
 
 
 async def extract_triples_llm(
-    text: str, model: str | None = None, max_triples: int = 15
+    text: str, model: str | None = None, max_triples: int = 8
 ) -> list[Triple]:
-    prompt = _TRIPLE_PROMPT.format(text=text[:4000], max_triples=max_triples)
+    # Eight relations from a 2,500-character window: a few seconds per chunk on a small local
+    # model, instead of the 15-25 s an 800-token reply took.
+    prompt = _TRIPLE_PROMPT.format(text=text[:2500], max_triples=max_triples)
     try:
-        raw = await complete(prompt, model=model, max_tokens=800, temperature=0.0)
+        raw = await complete(prompt, model=model, max_tokens=320, temperature=0.0)
     except LlmUnavailableError:
         logger.info("Triple extraction: LLM unavailable, returning no triples for this chunk")
         return []

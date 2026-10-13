@@ -168,7 +168,7 @@ export function SafetySection() {
       {summaryError ? (
         <ErrorState error={summaryError} action={<Button size="sm" variant="outline" onClick={loadSummary}>Retry</Button>} />
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="stagger grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
             label="Decisions logged"
             tip="Every guardrail check on a real question, including the ones that passed."

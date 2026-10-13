@@ -95,10 +95,12 @@ def _record_usage(model_name: str, response: Any) -> None:
 
 # ---- Chat goes first -------------------------------------------------------------------
 # A local model server answers one request at a time, so a judge call or a graph-extraction
-# call that is already queued makes the person waiting for an answer wait behind it. Work
-# marked as background (scoring, enrichment, evaluation jobs) holds off before each model
-# call while an interactive answer is being generated.
-_interactive_turns = 0
+# call that is already queued makes the person waiting for an answer wait behind it.
+# Three levels. 0: someone is waiting for a chat answer. 1: work the user started and is
+# watching (a comparison, an evaluation, scoring the answer just given). 2: housekeeping
+# nobody is watching (graph extraction after an upload). A call waits while anything of a
+# lower number is active, and is abandoned and restarted if something lower starts.
+CHAT, FOREGROUND, HOUSEKEEPING = 0, 1, 2
 
 
 class _LoopState:
@@ -106,10 +108,16 @@ class _LoopState:
     second loop (each test gets its own) never touches objects bound to a finished one."""
 
     def __init__(self) -> None:
-        self.idle = asyncio.Event()
-        self.idle.set()
-        self.busy = asyncio.Event()
+        self.active = {CHAT: 0, FOREGROUND: 0}
+        self.changed = asyncio.Event()  # pulsed whenever `active` changes
         self.slots = asyncio.Semaphore(max(1, get_settings().llm_max_concurrency))
+
+    def blocked(self, level: int) -> bool:
+        return any(count > 0 for other, count in self.active.items() if other < level)
+
+    def pulse(self) -> None:
+        self.changed.set()
+        self.changed = asyncio.Event()
 
 
 _loop_states: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, _LoopState] = (
@@ -125,47 +133,55 @@ def _state() -> _LoopState:
     return state
 
 
-_background: ContextVar[bool] = ContextVar("_llm_background", default=False)
-BACKGROUND_MAX_WAIT_SECONDS = 60.0
-
-
-def _idle() -> asyncio.Event:
-    return _state().idle
-
-
-def _busy() -> asyncio.Event:
-    return _state().busy
+_level: ContextVar[int] = ContextVar("_llm_level", default=CHAT)
+BACKGROUND_MAX_WAIT_SECONDS = 90.0
 
 
 @asynccontextmanager
-async def interactive() -> AsyncIterator[None]:
-    """Marks the enclosed model calls as someone waiting for an answer."""
-    global _interactive_turns
-    _interactive_turns += 1
-    _idle().clear()
-    _busy().set()
+async def _active(level: int) -> AsyncIterator[None]:
+    state = _state()
+    state.active[level] += 1
+    state.pulse()
     try:
         yield
     finally:
-        _interactive_turns -= 1
-        if _interactive_turns <= 0:
-            _interactive_turns = 0
-            _idle().set()
-            _busy().clear()
+        state.active[level] -= 1
+        state.pulse()
 
 
-def mark_background() -> None:
-    """Every model call made by this task from here on yields to interactive answers."""
-    _background.set(True)
+def interactive() -> Any:
+    """Marks the enclosed model calls as someone waiting for a chat answer."""
+    return _active(CHAT)
 
 
-async def _yield_to_interactive() -> None:
-    if not _background.get() or _idle().is_set():
-        return
-    try:
-        await asyncio.wait_for(_idle().wait(), timeout=BACKGROUND_MAX_WAIT_SECONDS)
-    except TimeoutError:
-        pass  # never starve background work indefinitely
+def foreground_job() -> Any:
+    """Marks the enclosed work as a job the user started; housekeeping waits for it."""
+    return _active(FOREGROUND)
+
+
+def mark_background(level: int = FOREGROUND) -> None:
+    """Every model call made by this task from here on yields to more urgent work."""
+    _level.set(level)
+
+
+async def _yield_to_urgent() -> None:
+    level = _level.get()
+    state = _state()
+    deadline = asyncio.get_running_loop().time() + BACKGROUND_MAX_WAIT_SECONDS
+    while state.blocked(level):
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            return  # never starve background work indefinitely
+        try:
+            await asyncio.wait_for(state.changed.wait(), timeout=remaining)
+        except TimeoutError:
+            return
+
+
+async def _until_blocked(level: int) -> None:
+    state = _state()
+    while not state.blocked(level):
+        await state.changed.wait()
 
 
 @asynccontextmanager
@@ -183,17 +199,18 @@ MAX_PREEMPTIONS = 4
 
 
 async def _preemptible(start: Callable[[], Awaitable[Any]]) -> Any:
-    """Runs a background model call, abandoning and restarting it if someone asks a question
-    meanwhile. Dropping the connection makes the model server stop generating, which frees it
-    for the interactive answer; the background call starts over once chat is idle again."""
+    """Runs a background model call, abandoning and restarting it if more urgent work
+    arrives meanwhile. Dropping the connection makes the model server stop generating, which
+    frees it at once; the call starts over when the urgent work is finished."""
+    level = _level.get()
     for _ in range(MAX_PREEMPTIONS):
-        await _yield_to_interactive()
+        await _yield_to_urgent()
         call = asyncio.ensure_future(start())
-        busy = asyncio.ensure_future(_busy().wait())
+        urgent = asyncio.ensure_future(_until_blocked(level))
         try:
-            await asyncio.wait({call, busy}, return_when=asyncio.FIRST_COMPLETED)
+            await asyncio.wait({call, urgent}, return_when=asyncio.FIRST_COMPLETED)
         finally:
-            busy.cancel()
+            urgent.cancel()
             if not call.done():
                 call.cancel()
         if call.done() and not call.cancelled():
@@ -202,7 +219,8 @@ async def _preemptible(start: Callable[[], Awaitable[Any]]) -> Any:
             await call
         except BaseException:  # noqa: BLE001 — the abandoned call's outcome is irrelevant
             pass
-        if asyncio.current_task() and asyncio.current_task().cancelling():  # type: ignore[union-attr]
+        task = asyncio.current_task()
+        if task is not None and task.cancelling():
             raise asyncio.CancelledError
     return await start()  # preempted repeatedly: let it finish rather than starve
 
@@ -266,7 +284,7 @@ async def complete(
             async with _local_slot(model_name):
                 return await litellm.acompletion(**kwargs)
 
-        response = await (_preemptible(send) if _background.get() else send())
+        response = await (_preemptible(send) if _level.get() > CHAT else send())
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # LiteLLM raises many provider-specific exception types.

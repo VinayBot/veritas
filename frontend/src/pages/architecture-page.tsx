@@ -220,7 +220,8 @@ export function ArchitecturePage() {
         window.setTimeout(() => {
           if (!reduced) {
             const sceneEdges = [...new Set(level.edges.map((id) => scene.edgeFor[id]).filter(Boolean))]
-            sceneEdges.forEach((edgeId) => emitPacket(edgeId, { durationMs: STEP_MS - 80, delayMs: 0, kind: 'request' }))
+            // A short stream of three packets per hop rather than a single dot.
+            sceneEdges.forEach((edgeId) => [0, 130, 260].forEach((delayMs) => emitPacket(edgeId, { durationMs: STEP_MS - 120, delayMs, kind: 'request' })))
           }
           tourTimers.current.push(
             window.setTimeout(() => setTour((prev) => (prev ? { active: level.nodes, done: [...prev.done, ...prev.active] } : prev)), reduced ? 0 : STEP_MS - 120),
@@ -329,10 +330,13 @@ export function ArchitecturePage() {
 
       <div className="flex min-h-0 flex-1 gap-4">
         <div className="relative min-w-0 flex-1 overflow-hidden rounded-xl border border-border bg-background">
+          <div className="arch-grid" aria-hidden="true" />
           <div className="aurora" aria-hidden="true">
             <span />
             <span />
           </div>
+          {/* Re-keyed so the sweep replays when the view changes or a walkthrough starts. */}
+          {graph !== null && !reduced && <div key={`${view}-${tour ? 'tour' : 'idle'}`} className="scan-sweep" aria-hidden="true" />}
           {tour && (
             <p className="absolute top-3 left-1/2 z-(--z-raised) -translate-x-1/2 rounded-pill border border-gold/40 bg-surface/90 px-3 py-1 text-xs text-accent-soft backdrop-blur" role="status" data-testid="tour-banner">
               Walkthrough of the declared request path — an illustration, not live traffic

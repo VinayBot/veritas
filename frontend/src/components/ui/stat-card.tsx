@@ -48,7 +48,7 @@ export function StatCard({
     <div
       data-testid={testId}
       className={cn(
-        'flex min-h-32 flex-col justify-between gap-3 rounded-xl border border-border bg-surface p-4 shadow-xs',
+        'rise-in flex min-h-32 flex-col justify-between gap-3 rounded-xl border border-border bg-surface p-4 shadow-xs',
         className,
       )}
     >

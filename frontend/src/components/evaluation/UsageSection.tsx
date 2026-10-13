@@ -140,7 +140,7 @@ export function UsageSection() {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="stagger grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Questions answered"
           loading={loading && !data}
@@ -264,7 +264,7 @@ export function UsageSection() {
       )}
 
       {data && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="stagger grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard label="Tokens per answer" term="tokens" value={q?.avg_tokens_per_answer ? compact(q.avg_tokens_per_answer) : undefined} caption={q ? `from ${q.reports_with_token_counts} answers with counts` : undefined} />
           <StatCard label="Chunks indexed" term="chunk" value={compact(data.corpus.chunks)} caption={`${compact(data.corpus.tokens)} tokens · ${data.corpus.variant_chunks} in alternative indexes`} />
           <StatCard

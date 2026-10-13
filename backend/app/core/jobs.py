@@ -158,9 +158,10 @@ async def list_jobs(
 
 
 async def _run(job_id: str, work: Callable[[JobContext], Awaitable[dict[str, Any] | None]]) -> None:
-    from app.llm.client import mark_background
+    from app.llm import client as llm_client
 
-    mark_background()  # a background job never makes a chat answer wait for the model
+    # A job yields the model to chat, and graph housekeeping yields to the job.
+    llm_client.mark_background(llm_client.FOREGROUND)
     ctx = JobContext(job_id)
     try:
         if _gate().locked():
@@ -172,7 +173,8 @@ async def _run(job_id: str, work: Callable[[JobContext], Awaitable[dict[str, Any
             ctx.checkpoint()
             await _update(job_id, status="running", message="Starting")
             await ctx.emit("status", {"status": "running"})
-            result = await work(ctx)
+            async with llm_client.foreground_job():
+                result = await work(ctx)
         await _update(job_id, status="done", progress=1.0, message="Done", result=result or {})
         await ctx.emit("done", {"result": result or {}})
     except (JobCancelled, asyncio.CancelledError):

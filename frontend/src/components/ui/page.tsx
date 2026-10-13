@@ -69,7 +69,7 @@ export function Panel({
     <section
       id={id}
       data-testid={testId}
-      className={cn('flex flex-col gap-4 rounded-xl border border-border bg-surface p-5 shadow-xs', className)}
+      className={cn('rise-in flex flex-col gap-4 rounded-xl border border-border bg-surface p-5 shadow-xs', className)}
     >
       {(title || actions) && (
         <div className="flex flex-wrap items-start justify-between gap-3">

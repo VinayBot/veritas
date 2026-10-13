@@ -121,9 +121,6 @@ export function AppShell() {
       </a>
       <header className="relative z-(--z-sticky) flex h-14 shrink-0 items-center gap-4 border-b border-border bg-surface/80 px-4 backdrop-blur-(--blur-glass)">
         <Link to="/" className="flex shrink-0 items-center gap-2">
-          <span aria-hidden="true" className="flex size-7 items-center justify-center rounded-lg bg-accent font-display text-sm font-bold text-on-accent shadow-glow">
-            真
-          </span>
           <span className="font-display text-lg font-semibold tracking-tight text-foreground">Veritas</span>
         </Link>
         <nav aria-label="Primary" className="flex items-center gap-1 rounded-xl border border-border bg-background/60 p-1">

@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
-import { Search, Sparkles, X } from 'lucide-react'
+import { RefreshCw, Search, Sparkles, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,7 +11,10 @@ import { EmptyState, ErrorState } from '@/components/ui/empty-state'
 import { LoadingState } from '@/components/ui/loading-state'
 import { useDocumentStatus } from '@/hooks/useDocumentStatus'
 import { useStrategies } from '@/hooks/useStrategies'
-import { getGraph, getGraphStats, streamChat } from '@/lib/api/client'
+import { toast } from 'sonner'
+import { ProgressBar } from '@/components/ui/progress-bar'
+import { useJob } from '@/hooks/useJob'
+import { ApiError, getGraph, getGraphStats, prepareStrategy, streamChat } from '@/lib/api/client'
 import type { GraphEdge, GraphNode, GraphStats } from '@/lib/api/types'
 import { ms, pct } from '@/lib/format'
 import { DURATION, EASE_ENTER } from '@/lib/motion'
@@ -48,6 +51,26 @@ export function GraphSection({ documentId }: { documentId: string }) {
   const [sequence, setSequence] = useState<string[] | undefined>(undefined)
   const [step, setStep] = useState<string | null>(null)
   const askedAt = useRef(0)
+  const [buildJobId, setBuildJobId] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
+
+  const build = useJob(buildJobId, (job) => {
+    setBuildJobId(null)
+    if (job.status === 'done') {
+      toast.success('Knowledge graph rebuilt')
+      strategies.refresh()
+      setReloadKey((k) => k + 1)
+    } else if (job.status === 'failed') toast.error(job.error ?? 'The graph could not be built')
+  })
+
+  /** Reads the document's entities and relations again. Takes about a minute. */
+  async function rebuild() {
+    try {
+      setBuildJobId((await prepareStrategy('graph_rag', documentId, true)).job_id)
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Could not start building the graph')
+    }
+  }
 
   const load = useCallback(
     (query?: string) => {
@@ -72,7 +95,7 @@ export function GraphSection({ documentId }: { documentId: string }) {
     getGraphStats(documentId)
       .then(setStats)
       .catch(() => setStats(null))
-  }, [load, documentId, doc?.enrichment_status])
+  }, [load, documentId, doc?.enrichment_status, reloadKey])
 
   const selected = useMemo(() => nodes?.find((n) => n.id === selectedId) ?? null, [nodes, selectedId])
   const graphStrategy = strategies.data?.strategies.find((s) => s.id === 'graph_rag')
@@ -121,7 +144,7 @@ export function GraphSection({ documentId }: { documentId: string }) {
 
   return (
     <div className="flex flex-col gap-6" data-testid="eval-graph">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="stagger grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Entities" tip="Distinct people, organisations, places, dates and terms extracted from this document." loading={stats === null && !error} value={stats ? <CountUp value={stats.entities} /> : undefined} className="lacquer-card" testId="graph-kpi-entities" />
         <StatCard label="Relations" tip="Links between two entities, each traceable to the passage it was read from." loading={stats === null && !error} value={stats ? <CountUp value={stats.relations} /> : undefined} className="lacquer-card" />
         <StatCard label="Communities" term="community" loading={stats === null && !error} value={stats ? <CountUp value={stats.communities} /> : undefined} className="lacquer-card" />
@@ -141,6 +164,10 @@ export function GraphSection({ documentId }: { documentId: string }) {
           title="Knowledge graph"
           description="Every point of light is an entity read from the document. Drag to rotate, hover for a name, click to inspect."
           actions={
+            <>
+            <Button size="sm" variant="outline" onClick={() => void rebuild()} disabled={build.active} data-testid="rebuild-graph" title="Read the document's entities and relations again (about a minute).">
+              <RefreshCw className={build.active ? 'size-3.5 animate-spin' : 'size-3.5'} /> {build.active ? 'Building…' : 'Rebuild graph'}
+            </Button>
             <form
               onSubmit={(e) => {
                 e.preventDefault()
@@ -170,9 +197,19 @@ export function GraphSection({ documentId }: { documentId: string }) {
                 </Button>
               )}
             </form>
+            </>
           }
           testId="graph-panel"
         >
+          {build.active && (
+            <div className="mb-3 flex flex-col gap-1.5 text-xs text-muted-foreground" data-testid="graph-build-progress">
+              <ProgressBar value={build.progress} label="Building the knowledge graph" tone="live" />
+              <span className="flex justify-between gap-2">
+                <span className="truncate">{build.message ?? 'Starting'}</span>
+                <span className="tabular-nums text-foreground">{Math.round(build.progress * 100)}%</span>
+              </span>
+            </div>
+          )}
           <div className="relative h-[520px] overflow-hidden rounded-xl border border-border bg-background">
             {error ? (
               <div className="flex h-full items-center justify-center">
@@ -189,7 +226,16 @@ export function GraphSection({ documentId }: { documentId: string }) {
                       ? 'Try a different word, or clear the filter.'
                       : building
                         ? 'Entity extraction runs in the background after ingestion. This fills in by itself when it finishes.'
-                        : 'Short or purely numeric documents can yield no named entities. Graph-based retrieval is unavailable for it.'
+                        : doc?.enrichment_status === 'failed'
+                          ? 'Reading the graph did not finish when this document was uploaded. Build it now; it takes about a minute.'
+                          : 'Nothing has been read into the graph for this document yet. Build it now; it takes about a minute.'
+                  }
+                  action={
+                    !activeFilter && !building ? (
+                      <Button size="sm" onClick={() => void rebuild()} disabled={build.active} data-testid="build-graph">
+                        {build.active ? 'Building…' : 'Build the graph'}
+                      </Button>
+                    ) : undefined
                   }
                 />
               </div>

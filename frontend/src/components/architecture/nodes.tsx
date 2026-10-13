@@ -114,7 +114,7 @@ function NodeShell({
             // xyflow sets pointer-events:none on a node wrapper it considers non-interactive,
             // and that is inherited, so the card opts back in.
             'pointer-events-auto relative h-full w-full cursor-pointer rounded-xl border bg-surface-raised text-left outline-none',
-            'transition-[opacity,transform] duration-[150ms] ease-out',
+            'transition-[opacity,transform] duration-[150ms] ease-out hover:-translate-y-0.5 hover:scale-[1.015]',
             'focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background',
             data.dimmed ? 'opacity-25' : 'opacity-100',
             active && 'scale-[1.02]',

@@ -77,7 +77,14 @@ class NetworkXGraphStore:
 
         if self._graph.number_of_nodes() == 0:
             return []
-        names = {n: self._graph.nodes[n].get("name", n) for n in self._graph.nodes}
+        # A one- or two-character name ("1", "US") partially matches almost any query.
+        names = {
+            n: name
+            for n in self._graph.nodes
+            if len(name := str(self._graph.nodes[n].get("name", n))) >= 3
+        }
+        if not names:
+            return []
         matches = process.extract(
             query_text, names, scorer=fuzz.partial_ratio, limit=limit, score_cutoff=60
         )

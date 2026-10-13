@@ -54,13 +54,15 @@ STAGE_TIMEOUTS: dict[str, float] = {
     "chunk": 30.0,
     "embed": 180.0,
     "index": 60.0,
-    "graph": 300.0,
+    # Housekeeping: it also waits for chat and for running jobs, so the ceiling is generous.
+    # Entities are saved early, so a timeout here still leaves a usable graph.
+    "graph": 900.0,
     "profile": 60.0,
     "advisor": 300.0,
 }
 
 CRITICAL_PATH_STAGES = ("parse", "refine", "pii_vault", "chunk_embed_index")
-ENRICHMENT_STAGES = ("graph", "profile", "advisor")
+ENRICHMENT_STAGES = ("graph", "profile")
 
 # Strong references to detached ingestion tasks — asyncio only holds a *weak* reference to a
 # task created with create_task, so without this a task can be silently garbage-collected
@@ -285,74 +287,70 @@ async def _run_enrichment(
     and never load-bearing for whether the document can be chatted with. Runs after the
     critical path, with its own status field, so a slow/failed enrichment phase never leaves
     the document stuck un-chattable."""
-    llm_client.mark_background()  # graph extraction yields to anyone asking a question
+    # Graph extraction yields to chat and to any job the user is watching.
+    llm_client.mark_background(llm_client.HOUSEKEEPING)
     await _update_document(document_id, enrichment_status="running")
     current = await get_document(document_id)
     page_count = current.page_count if current else None
+    # Each stage stands alone: a slow graph pass must not cost the document its profile, and
+    # the profile is what the strategy recommendation is computed from.
+    failures: list[str] = []
     try:
-        stage = "graph"
-        async with trace_bus.stage(
-            document_id, "graph", from_stage="index", to_stage="profile"
-        ) as h:
-            graph_stats = await _timed(
-                document_id, stage, build_graph_for_document(document_id, chunks)
-            )
-            for key, value in graph_stats.items():
-                h.set_metric(key, value)
-            h.set_output(f"{graph_stats['entities']} entities, {graph_stats['triples']} triples")
-        await _update_document(
-            document_id,
-            graph_entity_count=graph_stats["entities"],
-            graph_triple_count=graph_stats["triples"],
-        )
-
-        stage = "profile"
-        async with trace_bus.stage(
-            document_id, "profile", from_stage="graph", to_stage="advisor"
-        ) as h:
-            doc_profile = await _timed(
-                document_id,
-                stage,
-                profiler_service.profile(
-                    document_id, masked_text, language, ocr_confidence, page_count
-                ),
-            )
-            h.set_metric("document_type", doc_profile.document_type)
-            h.set_metric("tokens", doc_profile.tokens)
-            h.set_metric("relation_density", doc_profile.relation_density)
-            h.set_output(f"{doc_profile.document_type}, {doc_profile.tokens} tokens")
-
-        stage = "advisor"
-        async with trace_bus.stage(document_id, "advisor", from_stage="profile") as h:
-            recommendation = await _timed(
-                document_id,
-                stage,
-                profiler_service.run_advisor(document_id, masked_text, doc_profile),
-            )
-            if recommendation is None:
-                h.set_output("skipped — not enough chunks yet for a meaningful comparison")
-            else:
-                h.set_metric("suggested_mode", recommendation.suggested_mode)
-                h.set_metric("gain_ndcg_points", recommendation.gain_ndcg_points)
-                h.set_output(
-                    f"suggested {recommendation.suggested.config.name} "
-                    f"({recommendation.gain_ndcg_points:+.1f} nDCG@5 pts over baseline)"
+        try:
+            async with trace_bus.stage(
+                document_id, "graph", from_stage="index", to_stage="profile"
+            ) as h:
+                graph_stats = await _timed(
+                    document_id, "graph", build_graph_for_document(document_id, chunks)
                 )
+                for key, value in graph_stats.items():
+                    h.set_metric(key, value)
+                h.set_output(
+                    f"{graph_stats['entities']} entities, {graph_stats['triples']} relations"
+                )
+            await _update_document(
+                document_id,
+                graph_entity_count=graph_stats["entities"],
+                graph_triple_count=graph_stats["triples"],
+            )
+        except _Cancelled:
+            raise
+        except Exception as exc:  # noqa: BLE001 — recorded below; the next stage still runs
+            logger.error("Enrichment stage 'graph' failed for %s: %s", document_id, exc)
+            failures.append(f"graph: {str(exc) or type(exc).__name__}")
 
-        await _update_document(document_id, enrichment_status="done")
+        try:
+            async with trace_bus.stage(document_id, "profile", from_stage="graph") as h:
+                doc_profile = await _timed(
+                    document_id,
+                    "profile",
+                    profiler_service.profile(
+                        document_id, masked_text, language, ocr_confidence, page_count
+                    ),
+                )
+                h.set_metric("document_type", doc_profile.document_type)
+                h.set_metric("tokens", doc_profile.tokens)
+                h.set_metric("relation_density", doc_profile.relation_density)
+                h.set_output(f"{doc_profile.document_type}, {doc_profile.tokens} tokens")
+        except _Cancelled:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Enrichment stage 'profile' failed for %s: %s", document_id, exc)
+            failures.append(f"profile: {str(exc) or type(exc).__name__}")
+
+        # The chunking tournament (re-chunk, re-embed and score several candidates) is no
+        # longer run automatically after every upload: it is minutes of model time most
+        # uploads never look at. It runs on request from Evaluation ("Chunking advisor").
+        if failures:
+            await _update_document(
+                document_id,
+                enrichment_status="failed",
+                enrichment_error="; ".join(failures)[:2000],
+            )
+        else:
+            await _update_document(document_id, enrichment_status="done")
     except _Cancelled:
         await _update_document(document_id, enrichment_status="cancelled")
-    except Exception as exc:  # noqa: BLE001 — enrichment must never crash the process either
-        logger.error(
-            "Enrichment stage %r failed for document %s: %s",
-            stage,
-            document_id,
-            exc,
-            exc_info=exc,
-        )
-        await _update_document(
-            document_id, enrichment_status="failed", enrichment_error=str(exc)[:2000]
-        )
 
 
 async def _run_pipeline(

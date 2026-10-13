@@ -90,3 +90,24 @@ async def test_benchmark_runs_the_council_strategy_when_explicitly_requested(
     # The red-team suite was not part of this run, and the report says so rather than 0.
     assert report.injection_block_rate is None
     assert "red-team suite not run" in report.gate_failures(result)
+
+
+def test_pick_questions_takes_turns_across_question_types() -> None:
+    from app.evaluation.benchmark import pick_questions
+    from app.evaluation.datasets import EvalItem
+
+    def item(i: int, category: str) -> EvalItem:
+        return EvalItem(
+            id=f"q{i}",
+            question=f"Q{i}",
+            ground_truth_answer="A",
+            source_chunk_ids=[],
+            category=category,
+        )
+
+    items = [item(i, "factoid") for i in range(6)] + [item(10, "comparison"), item(11, "pii")]
+    picked = pick_questions(items, 5)
+    assert len(picked) == 5
+    assert {p.category for p in picked} == {"factoid", "comparison", "pii"}
+    assert pick_questions(items, 5) == picked  # deterministic
+    assert pick_questions(items[:3], 5) == items[:3]

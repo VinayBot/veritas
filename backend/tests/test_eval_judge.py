@@ -96,3 +96,40 @@ async def test_a_judge_reply_with_no_number_is_not_measured(
 
     monkeypatch.setattr(judge, "complete", waffle)
     assert await score_relevancy("An answer.", "A question?") is None
+
+
+async def test_score_all_returns_every_requested_score_from_one_call(monkeypatch) -> None:
+    from app.evaluation import judge
+
+    calls: list[str] = []
+
+    async def fake_complete(prompt, **kwargs):  # noqa: ANN001, ANN003
+        calls.append(prompt)
+        return "faithfulness: 9\nrelevancy: 8\ncorrectness: 4"
+
+    monkeypatch.setattr(judge, "complete", fake_complete)
+    scores = await judge.score_all(
+        "Two days per month [1].",
+        "How much vacation?",
+        context="Employees accrue two vacation days per month.",
+        ground_truth="Two days a month.",
+    )
+    assert scores == {"faithfulness": 0.9, "relevancy": 0.8, "correctness": 0.4}
+    assert len(calls) == 1
+
+
+async def test_score_all_only_asks_for_what_it_can_measure(monkeypatch) -> None:
+    """No context means no faithfulness score, and a score the judge leaves out stays None
+    rather than becoming a number."""
+    from app.evaluation import judge
+
+    prompts: list[str] = []
+
+    async def fake_complete(prompt, **kwargs):  # noqa: ANN001, ANN003
+        prompts.append(prompt)
+        return "relevancy: 7"
+
+    monkeypatch.setattr(judge, "complete", fake_complete)
+    scores = await judge.score_all("Two days.", "How much vacation?", ground_truth="Two days.")
+    assert scores == {"faithfulness": None, "relevancy": 0.7, "correctness": None}
+    assert "faithfulness —" not in prompts[0]

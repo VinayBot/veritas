@@ -24,7 +24,7 @@ export const STATUS_LABEL: Record<HealthStatus, string> = {
 export function StatusDot({ status, className }: { status: HealthStatus; className?: string }) {
   return (
     <span
-      className={cn('inline-block size-2 shrink-0 rounded-full', DOT[status], className)}
+      className={cn('inline-block size-2 shrink-0 rounded-full', DOT[status], status === 'healthy' && 'dot-live', className)}
       role="img"
       aria-label={STATUS_LABEL[status]}
     />

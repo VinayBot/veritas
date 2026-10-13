@@ -131,3 +131,35 @@ async def test_graph_query_returns_empty_for_unknown_entity() -> None:
     assert result["nodes"] == []
     assert result["edges"] == []
     assert result["linked_entities"] == []
+
+
+async def test_relations_between_concepts_become_graph_nodes(monkeypatch) -> None:
+    """A technical passage names few entities NER recognises; the relations a model reads out
+    of it still belong in the graph, as concept nodes. Clause-length "subjects" and numbers
+    do not."""
+    from app.graphrag import service
+    from app.graphrag.extractor import Triple
+
+    async def fake_triples(text, model=None, max_triples=8):  # noqa: ANN001, ARG001
+        return [
+            Triple(subject="dialog manager", predicate="decides", object="response message"),
+            Triple(
+                subject="the part of the system that the user never actually gets to see at all",
+                predicate="is",
+                object="backend",
+            ),
+        ]
+
+    monkeypatch.setattr(service, "extract_triples_llm", fake_triples)
+    doc_id = f"doc-{uuid.uuid4()}"
+    text = (
+        "The dialog manager decides which response message is sent back. It costs 12 dollars. " * 4
+    )
+    stats = await build_graph_for_document(doc_id, [_chunk(doc_id, text)])
+    data = get_graph_store().to_json(doc_id=doc_id)
+    names = {n["name"] for n in data["nodes"]}
+    assert {"dialog manager", "response message"} <= names
+    assert not any(len(name.split()) > 6 for name in names)
+    assert not any(n["label"] in {"CARDINAL", "MONEY"} for n in data["nodes"])
+    assert stats["triples"] == 1 and stats["concepts"] == 2
+    assert len(data["edges"]) == 1

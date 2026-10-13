@@ -28,7 +28,7 @@ test('there are exactly three tabs, and the old tab addresses land inside them',
   await expect(nav.getByRole('link')).toHaveText(['Workspace', 'Architecture', 'Evaluation'])
 
   for (const [from, to] of [
-    ['/app/dashboard', /\/app\/evaluation\?view=usage/],
+    ['/app/dashboard', /\/app\/evaluation$/],
     ['/app/graph', /\/app\/evaluation\?view=graph/],
     ['/app/guardrails', /\/app\/evaluation\?view=safety/],
     ['/app/test-center', /\/app\/architecture/],
@@ -98,26 +98,83 @@ test('strategy and model can be switched from the Workspace header, and the reco
   await expect(card.getByTestId('improvement-panel')).toBeVisible()
 })
 
-test('every Evaluation view renders real data or an honest empty state', async ({ page }) => {
+test('Evaluation has exactly three views; Usage also carries measured quality', async ({ page }) => {
   await openSample(page)
   await page.goto('/app/evaluation')
+  await expect(page.getByRole('tab')).toHaveText(['Usage', 'Knowledge graph', 'Safety'])
 
-  await expect(page.getByTestId('eval-kpi-faithfulness')).toContainText(/No evaluation run yet|Not measured|\d\.\d\d/)
-  await expect(page.getByTestId('run-eval-button')).toBeEnabled()
-
-  await page.getByTestId('eval-tab-usage').click()
   const analytics = await (await page.request.get('http://localhost:8000/api/v1/analytics/overview?days=14')).json()
   await expect(page.getByTestId('usage-kpi-questions')).toContainText(String(analytics.queries.in_window))
-
-  await page.getByTestId('eval-tab-graph').click()
-  await expect(page.getByTestId('graph-kpi-entities')).toBeVisible()
+  // Quality lives on the same view, below usage.
+  await expect(page.getByTestId('eval-kpi-faithfulness')).toContainText(/No evaluation run yet|Not measured|\d\.\d\d/)
+  await expect(page.getByTestId('run-eval-button')).toBeEnabled()
 
   await page.getByTestId('eval-tab-safety').click()
   await expect(page.getByTestId('guardrails-kpi-redteam')).toContainText('Not run this session')
   await expect(page.getByTestId('audit-log')).toBeVisible()
 
-  await page.getByTestId('eval-tab-corpus').click()
-  await expect(page.getByTestId('corpus-table')).toContainText('northwind_remote_work_travel_policy.pdf')
+  // Old addresses for removed views fall back to Usage rather than a blank page.
+  await page.goto('/app/evaluation?view=corpus')
+  await expect(page.getByTestId('eval-usage')).toBeVisible()
+})
+
+test('the knowledge graph shows the document\'s entities and answers a question', async ({ page }) => {
+  await openSample(page)
+  // Graph reading runs in the background after upload; wait for it through the API.
+  const docs = await (await page.request.get('http://localhost:8000/api/v1/documents?status=ready&limit=1')).json()
+  const id = docs.documents[0].id
+  await expect
+    .poll(async () => (await (await page.request.get(`http://localhost:8000/api/v1/documents/${id}`)).json()).enrichment_status, { timeout: 240_000, intervals: [2000] })
+    .toBe('done')
+  const stats = await (await page.request.get(`http://localhost:8000/api/v1/graph/stats?document_id=${id}`)).json()
+  expect(stats.entities).toBeGreaterThan(0)
+  expect(stats.relations).toBeGreaterThan(0)
+
+  await page.goto('/app/evaluation?view=graph')
+  await expect(page.getByTestId('graph-kpi-entities')).toContainText(String(stats.entities))
+  await expect(page.getByTestId('knowledge-graph-stats')).toContainText(`Relations: ${stats.relations}`, { timeout: 30_000 })
+
+  await page.getByTestId('ask-the-graph-input').fill('Who approves business travel?')
+  await page.getByTestId('ask-the-graph-form').getByRole('button', { name: /ask/i }).click()
+  const answer = page.getByTestId('graph-answer')
+  await expect(answer).toContainText(/answered with/i, { timeout: 120_000 })
+  await expect(answer).not.toContainText("I can't provide that response")
+})
+
+test('a comparison runs to a measured result in under two minutes, with progress that moves', async ({ page }) => {
+  await openSample(page)
+  await ask(page, 'How much is the home office stipend?')
+  await page.getByTestId('compare-recommended').click()
+  const dialog = page.getByTestId('compare-dialog')
+  await expect(dialog).toBeVisible()
+  await dialog.getByLabel('Question to compare on').fill('How much is the home office stipend?')
+  const available = dialog.locator('input[type="checkbox"]:not([disabled])')
+  if (!(await available.first().isChecked())) await available.first().check()
+  await expect(dialog.getByTestId('compare-run')).toBeEnabled({ timeout: 15_000 })
+  const started = Date.now()
+  await dialog.getByTestId('compare-run').click()
+
+  // The bar leaves 0% while the first strategy is still working.
+  const bar = dialog.getByRole('progressbar')
+  await expect.poll(async () => Number(await bar.getAttribute('aria-valuenow')), { timeout: 60_000 }).toBeGreaterThan(0)
+  await expect(dialog.getByTestId('comparison-view')).toBeVisible({ timeout: 120_000 })
+  expect(Date.now() - started).toBeLessThan(120_000)
+  // Two strategies, each with a measured latency.
+  await expect(dialog.getByTestId('comparison-view')).toContainText(/\d(\.\d+)?\s?(ms|s)/)
+})
+
+test('an evaluation runs from the dashboard with live progress and fills the quality cards', async ({ page }) => {
+  await openSample(page)
+  await page.goto('/app/evaluation')
+  await page.getByTestId('run-eval-button').click()
+  await page.getByTestId('confirm-accept').click()
+  const progress = page.getByTestId('eval-progress')
+  await expect(progress).toBeVisible({ timeout: 30_000 })
+  await expect.poll(async () => Number(await progress.getByRole('progressbar').getAttribute('aria-valuenow')), { timeout: 120_000 }).toBeGreaterThan(0)
+  await expect(page.getByTestId('eval-strategy-table')).toBeVisible({ timeout: 300_000 })
+  await expect(page.getByTestId('eval-provenance')).toContainText(/questions from eval set v\d+/)
+  await expect(page.getByTestId('eval-kpi-recall_at_5')).toContainText(/\d\.\d\d/)
+  await expect(page.getByTestId('eval-kpi-recall_at_5')).toContainText(/Verified/)
 })
 
 test('Architecture can play the request path, clearly labelled as an illustration', async ({ page }) => {

@@ -155,15 +155,16 @@ export function QualitySection({ documentId }: { documentId: string }) {
 
   const available = (strategies.data?.strategies ?? []).filter((s) => s.available)
   const defaultPick = useMemo(
-    () => available.filter((s) => ['hybrid', 'hybrid_rerank', 'hyde', 'graph_rag', 'agentic'].includes(s.id)).map((s) => s.id),
+    () => available.filter((s) => ['hybrid', 'hybrid_rerank', 'graph_rag'].includes(s.id)).map((s) => s.id),
     [available],
   )
   const chosen = picked ?? defaultPick
   const chosenSet = datasets?.find((d) => d.id === datasetChoice) ?? (datasetChoice === 'latest' ? datasets?.[0] : undefined)
-  const questions = chosenSet?.item_count ?? 10
+  // The backend uses at most five questions per run (three for the agent strategies).
+  const questions = Math.min(chosenSet?.item_count ?? 5, 5)
   const expectedSeconds = available
     .filter((s) => chosen.includes(s.id))
-    .reduce((sum, s) => sum + ((s.measured_latency_ms ?? s.typical_latency_ms) / 1000) * (s.kind === 'agentic' ? Math.min(questions, 5) : questions), 0)
+    .reduce((sum, s) => sum + ((s.measured_latency_ms ?? s.typical_latency_ms) / 1000) * (s.kind === 'agentic' ? Math.min(questions, 3) : questions) + 3 * questions, 0)
 
   async function start() {
     setConfirmOpen(false)
@@ -172,7 +173,7 @@ export function QualitySection({ documentId }: { documentId: string }) {
         document_id: documentId,
         configs: chosen,
         dataset_id: datasetChoice === 'latest' || datasetChoice === 'new' ? null : datasetChoice,
-        dataset_target_size: 10,
+        dataset_target_size: 5,
         include_safety: includeSafety,
       })
       setJobId(job_id)
@@ -380,7 +381,7 @@ export function QualitySection({ documentId }: { documentId: string }) {
               className="rounded-lg border border-border bg-surface-raised px-2.5 py-1.5 text-sm text-foreground"
               data-testid="eval-dataset-select"
             >
-              <option value="latest">{datasets?.[0] ? `Latest eval set (v${datasets[0].version}, ${datasets[0].item_count} questions)` : 'Generate a 10-question eval set'}</option>
+              <option value="latest">{datasets?.[0] ? `Latest question set (v${datasets[0].version}, uses ${Math.min(datasets[0].item_count, 5)} of ${datasets[0].item_count})` : 'Write 5 new questions from the document'}</option>
               {(datasets ?? []).slice(1).map((d) => (
                 <option key={d.id} value={d.id}>
                   Eval set v{d.version} · {d.item_count} questions
@@ -425,7 +426,7 @@ export function QualitySection({ documentId }: { documentId: string }) {
 
   return (
     <div className="flex flex-col gap-6" data-testid="eval-quality">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="stagger grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {KPI_KEYS.map((key) => {
           const m = METRICS.find((x) => x.key === key)!
           const value = metric(selectedConfig, key)
@@ -575,7 +576,7 @@ export function QualitySection({ documentId }: { documentId: string }) {
         title="Run an evaluation?"
         description={
           <>
-            {chosen.length} strateg{chosen.length === 1 ? 'y' : 'ies'} × {chosenSet ? `${chosenSet.item_count} questions (eval set v${chosenSet.version})` : 'a new 10-question eval set'}
+            {chosen.length} strateg{chosen.length === 1 ? 'y' : 'ies'} × {chosenSet ? `${Math.min(chosenSet.item_count, 5)} questions (set v${chosenSet.version})` : '5 new questions'}
             {includeSafety ? ', plus the red-team suite and a PII leak scan' : ''}.
           </>
         }

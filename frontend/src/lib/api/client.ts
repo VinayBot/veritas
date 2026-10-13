@@ -212,8 +212,8 @@ export const getStrategies = (documentId?: string | null) =>
 export const setDefaultStrategy = (strategy: string) =>
   json<StrategiesResponse>('/rag/default', { strategy }, 'PUT')
 
-export const prepareStrategy = (strategyId: string, documentId: string) =>
-  json<{ job_id: string }>(`/rag/strategies/${strategyId}/prepare`, { document_id: documentId })
+export const prepareStrategy = (strategyId: string, documentId: string, rebuild = false) =>
+  json<{ job_id: string }>(`/rag/strategies/${strategyId}/prepare`, { document_id: documentId, rebuild })
 
 export const getRecommendation = (documentId: string) =>
   request<Recommendation>(`/documents/${documentId}/recommendation`)
