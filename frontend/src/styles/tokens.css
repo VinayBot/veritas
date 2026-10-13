@@ -1,0 +1,167 @@
+/*
+ * Design tokens — the single source of truth for colour, type, spacing, radius, elevation
+ * and motion. Imported once by src/index.css. Components read these through Tailwind
+ * utilities (bg-surface, text-muted-foreground, shadow-md, duration-standard, ...) or
+ * var(--token); no component carries its own hex value.
+ *
+ * Dark is the default canvas; `.light` on <html> opts into the light palette (see
+ * index.html's bootstrap script and src/lib/theme.tsx).
+ */
+
+@theme {
+  /* ---- Type: one UI face, one display face ---- */
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+
+  /* ---- Colour: "samurai" — sumi-ink canvas, crimson lacquer accent, gold leaf highlight,
+     steel cyan = live, jade = healthy, amber = warn, coral = error ---- */
+  --color-background: #08080a;
+  --color-surface: #101013;
+  --color-surface-raised: #17161b;
+  --color-border: #2a2730;
+  --color-foreground: #f4efe9;
+  --color-muted: #948c95;
+  --color-accent: #d0202f;
+  --color-accent-soft: #f2c879;
+  --color-gold: #d9a441;
+  --color-live: #38d6e8;
+  --color-success: #3ecf8e;
+  --color-warning: #f5b83d;
+  --color-danger: #ff7a70;
+  /* Ink for text sitting on the crimson accent fill (6.4:1 against it). */
+  --color-on-accent: #fff6f0;
+
+  /* Data-visualisation series, in order of use. */
+  --color-chart-1: #e5484d;
+  --color-chart-2: #38d6e8;
+  --color-chart-3: #3ecf8e;
+  --color-chart-4: #f2c879;
+  --color-chart-5: #b48ead;
+  --color-chart-6: #7aa2f7;
+
+  /* ---- Radii: 12px controls and panels, 16px cards ---- */
+  --radius-card: 1rem;
+  --radius-pill: 999px;
+
+  /* ---- Elevation: three levels on one ramp (sm, md, lg); xs is a hairline ---- */
+  --shadow-xs: 0 1px 2px 0 color-mix(in srgb, black 35%, transparent);
+  --shadow-sm: 0 2px 8px -2px color-mix(in srgb, black 45%, transparent);
+  --shadow-md: 0 12px 32px -12px color-mix(in srgb, black 55%, transparent);
+  --shadow-lg: 0 32px 64px -24px color-mix(in srgb, black 60%, transparent);
+  --shadow-glow:
+    0 0 0 1px color-mix(in srgb, var(--color-accent) 40%, transparent),
+    0 0 40px -4px color-mix(in srgb, var(--color-accent) 55%, transparent);
+
+  /* ---- Blur ---- */
+  --blur-glass: 16px;
+
+  /* ---- Spacing: Tailwind's 4px base (--spacing: 0.25rem) drives every numbered utility;
+     only the named extras live here. ---- */
+  --spacing-gutter: 1.5rem;
+  --spacing-section: 6rem;
+
+  /* ---- Z-index layers ---- */
+  --z-base: 0;
+  --z-raised: 10;
+  --z-sticky: 20;
+  --z-overlay: 40;
+  --z-drawer: 50;
+  --z-popover: 60;
+  --z-toast: 70;
+  --z-tooltip: 80;
+
+  /* ---- Gradients ---- */
+  --gradient-brand: linear-gradient(135deg, var(--color-accent) 0%, var(--color-gold) 100%);
+
+  /* ---- Motion: 120ms micro, 200ms standard, 320ms page/large ---- */
+  --ease-enter: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --duration-micro: 120ms;
+  --duration-standard: 200ms;
+  --duration-large: 320ms;
+
+  /* ---- Fluid type scale ---- */
+  --text-hero: clamp(2.75rem, 2rem + 4vw, 6rem);
+  --text-hero--line-height: 1.02;
+  --text-display: clamp(2rem, 1.5rem + 2.5vw, 3.5rem);
+  --text-display--line-height: 1.05;
+  --text-title: clamp(1.25rem, 1.1rem + 0.6vw, 1.75rem);
+  --text-title--line-height: 1.25;
+}
+
+/* Aliases that must stay live var() references because what they point at flips under
+   `:root.light`. Same split shadcn/ui's generator uses. */
+@theme inline {
+  --font-heading: var(--font-display);
+
+  --color-card: var(--color-surface-raised);
+  --color-card-foreground: var(--color-foreground);
+  --color-popover: var(--color-surface-raised);
+  --color-popover-foreground: var(--color-foreground);
+  --color-primary: var(--color-accent);
+  --color-primary-foreground: var(--color-on-accent);
+  --color-secondary: var(--color-surface-raised);
+  --color-secondary-foreground: var(--color-foreground);
+  --color-muted-foreground: var(--color-muted);
+  --color-accent-foreground: var(--color-on-accent);
+  --color-destructive: var(--color-danger);
+  --color-destructive-foreground: var(--color-on-accent);
+  --color-input: var(--color-border);
+  --color-ring: var(--color-accent);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: var(--radius-card);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* Bare passthroughs for generated files that read a CSS var directly instead of through a
+   Tailwind utility. Each forwards to the real token, so it follows the theme. */
+:root {
+  --radius: 0.75rem;
+  --foreground: var(--color-foreground);
+  --secondary: var(--color-secondary);
+  --popover: var(--color-popover);
+  --popover-foreground: var(--color-popover-foreground);
+  --border: var(--color-border);
+}
+
+:root.light {
+  /* Washi paper: warm off-white with the same crimson and a darker gold. */
+  --color-background: #f7f3ec;
+  --color-surface: #fffdf8;
+  --color-surface-raised: #f1ebe0;
+  --color-border: #e0d6c6;
+  --color-foreground: #17141a;
+  --color-muted: #675f66;
+
+  /* Darkened so each clears 4.5:1 as text on the paper surface. */
+  --color-accent: #b3141f;
+  --color-accent-soft: #8a5a00;
+  --color-gold: #8a5a00;
+  --color-danger: #b42318;
+  --color-warning: #8a5300;
+  --color-success: #0a7a4b;
+  --color-live: #0b6f80;
+
+  --color-chart-1: #b3141f;
+  --color-chart-2: #0b6f80;
+  --color-chart-3: #0a7a4b;
+  --color-chart-4: #8a5a00;
+  --color-chart-5: #7a4a78;
+  --color-chart-6: #2a4fa8;
+}
+
+/* Named duration utilities, so components write `duration-standard` instead of a number. */
+@utility duration-micro {
+  transition-duration: var(--duration-micro);
+}
+@utility duration-standard {
+  transition-duration: var(--duration-standard);
+}
+@utility duration-large {
+  transition-duration: var(--duration-large);
+}

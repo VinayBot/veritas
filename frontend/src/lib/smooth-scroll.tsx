@@ -3,11 +3,9 @@ import { useReducedMotion } from 'framer-motion'
 import type { ReactNode } from 'react'
 
 /**
- * App-wide Lenis smooth scroll (the brief's STACK list; GSAP ScrollTrigger
- * is explicitly scoped to a landing page that doesn't exist yet, so it's
- * installed but unused — see docs/UI_MOTION.md). Smooth-scroll hijacking is
- * itself a motion effect, so it's skipped entirely under
- * prefers-reduced-motion rather than just running at a shorter duration.
+ * Lenis smooth scroll for the landing page only. The app's own screens are panels with their
+ * own scroll containers, where hijacking the wheel caused real bugs (docs/TROUBLESHOOTING.md),
+ * so they use native scrolling. Skipped entirely under prefers-reduced-motion.
  */
 export function SmoothScroll({ children }: { children: ReactNode }) {
   const reduced = useReducedMotion()

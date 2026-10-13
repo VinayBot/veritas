@@ -1,35 +1,32 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { AnimatePresence } from 'framer-motion'
-import {
-  Upload,
-  Send,
-  Loader2,
-  ChevronDown,
-  ChevronUp,
-  RotateCcw,
-  Ban,
-  Clock,
-} from 'lucide-react'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
+import { Ban, Brain, ChevronDown, Clock, Eraser, RotateCcw, Send, Square, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Stepper, type StepperStep, type StepState } from '@/components/ui/stepper'
 import { AlertBanner } from '@/components/ui/alert-banner'
-import { useAppStore } from '@/store/app-store'
+import { Skeleton } from '@/components/ui/skeleton'
+import { ErrorState } from '@/components/ui/empty-state'
+import { LoadingState } from '@/components/ui/loading-state'
+import { useCommands, type CommandPaletteItem } from '@/components/ui/command-palette'
+import { AnalystBot, type BotState } from '@/components/robot/analyst-bot'
+import { AnalysisPanel } from '@/components/workspace/AnalysisPanel'
+import { AnswerText } from '@/components/workspace/AnswerText'
+import { ModelPicker } from '@/components/workspace/ModelPicker'
+import { RecommendationCard } from '@/components/workspace/RecommendationCard'
+import { StrategyPicker } from '@/components/workspace/StrategyPicker'
+import { CompareDialog } from '@/components/compare/CompareDialog'
+import { SettingsDialog } from '@/components/settings/SettingsDialog'
+import { useAppStore, type ChatMessage, type DetailMode } from '@/store/app-store'
 import { useTraceEvents } from '@/hooks/useTraceEvents'
 import { useDocumentStatus } from '@/hooks/useDocumentStatus'
-import { DocumentIntelligencePanel } from '@/components/workspace/document-intelligence-panel'
-import { uploadDocument, retryDocument, cancelDocument, streamChat, ApiError } from '@/lib/api/client'
-import type {
-  ChatCitation,
-  AgentStep,
-  QualityReport,
-  RoutingInfo,
-  ChatMode,
-  DocumentResponse,
-} from '@/lib/api/types'
+import { useStrategies } from '@/hooks/useStrategies'
+import { cancelDocument, cancelRun, getReport, ingestSample, retryDocument, streamChat, uploadDocument } from '@/lib/api/client'
+import { ApiError, type DocumentResponse, type ReportResponse } from '@/lib/api/types'
+import { DURATION, EASE_ENTER } from '@/lib/motion'
+import { modelName, ms } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 const INGESTION_STAGES: { id: string; title: string }[] = [
@@ -45,19 +42,13 @@ const INGESTION_STAGES: { id: string; title: string }[] = [
   { id: 'advisor', title: 'Advisor' },
 ]
 
-// Everything through "index" marks the document ready for chat (app/ingestion/service.py's
-// critical path); graph/profile/advisor are the separate, non-blocking enrichment phase that
-// runs afterward — so their fallback state (when no trace event has arrived yet) has to be
-// read off `enrichment_status`, not `current_stage`/`status`, which graph/profile/advisor
-// never touch.
-const CRITICAL_PATH_STAGE_IDS = new Set(['upload', 'parse', 'refine', 'pii_vault', 'chunk', 'embed', 'index'])
+// Everything through "index" makes the document ready for chat; graph/profile/advisor are a
+// separate background phase, so their fallback state is read off `enrichment_status`.
+const CRITICAL_PATH = new Set(['upload', 'parse', 'refine', 'pii_vault', 'chunk', 'embed', 'index'])
 const TAKING_LONGER_MS = 20_000
+const STAGE_TITLE: Record<string, string> = Object.fromEntries(INGESTION_STAGES.map((s) => [s.id, s.title]))
 
-const STAGE_TITLE: Record<string, string> = Object.fromEntries(
-  INGESTION_STAGES.map((s) => [s.id, s.title]),
-)
-
-const STATUS_BADGE_VARIANT: Record<DocumentResponse['status'], 'success' | 'outline' | 'warning' | 'destructive'> = {
+const STATUS_VARIANT: Record<DocumentResponse['status'], 'success' | 'outline' | 'warning' | 'destructive'> = {
   queued: 'outline',
   running: 'warning',
   ready: 'success',
@@ -65,27 +56,25 @@ const STATUS_BADGE_VARIANT: Record<DocumentResponse['status'], 'success' | 'outl
   cancelled: 'outline',
 }
 
-interface ChatMessage {
-  role: 'user' | 'assistant'
-  content: string
-  citations?: ChatCitation[]
-  agentSteps?: AgentStep[]
-  quality?: QualityReport
-  routing?: RoutingInfo | null
-  councilRunId?: string | null
-  reportId?: string
-  errored?: boolean
+/** What the answer pipeline is doing right now, in plain words. */
+const STAGE_WORDS: Record<string, string> = {
+  guardian_in: 'checking the question',
+  semantic_cache: 'found a cached answer',
+  planner: 'planning',
+  rewriter: 'rewording for search',
+  retriever: 'searching the document',
+  critic: 'judging the evidence',
+  summarizer: 'reading widely',
+  synthesizer: 'writing',
+  council: 'convening the council',
+  verifier: 'verifying claims',
+  guardian_out: 'checking the answer',
+  retry: 'retrying with a faster model',
 }
 
-/** Prefers real per-stage trace events (richer, exact timing) when the WebSocket has
- * delivered any; otherwise falls back to the authoritative polled `doc` snapshot — so the
- * Stepper is still meaningful (never stuck showing "pending" forever) even if the socket
- * never connects at all, per docs/TROUBLESHOOTING.md's "fall back to polling" requirement. */
-function stageState(
-  stageId: string,
-  events: ReturnType<typeof useTraceEvents>['events'],
-  doc: DocumentResponse | null,
-): StepState {
+/** Prefers real per-stage trace events; falls back to the polled document snapshot so the
+ * stepper is still meaningful if the socket never connects. */
+function stageState(stageId: string, events: ReturnType<typeof useTraceEvents>['events'], doc: DocumentResponse | null): StepState {
   const matching = events.filter((e) => e.stage === stageId)
   if (matching.length > 0) {
     const latest = matching[matching.length - 1]
@@ -93,55 +82,50 @@ function stageState(
     if (latest.status === 'error' || latest.status === 'blocked') return 'error'
     return 'active'
   }
-
   if (!doc) return 'pending'
-
-  if (CRITICAL_PATH_STAGE_IDS.has(stageId)) {
+  if (CRITICAL_PATH.has(stageId)) {
     const order = INGESTION_STAGES.map((s) => s.id)
     const stageIndex = order.indexOf(stageId)
     const currentIndex = doc.current_stage ? order.indexOf(doc.current_stage) : -1
-    if (doc.status === 'ready' || (doc.status === 'failed' && stageIndex < currentIndex)) {
-      return 'complete'
-    }
+    if (doc.status === 'ready' || (doc.status === 'failed' && stageIndex < currentIndex)) return 'complete'
     if (doc.status === 'failed' && doc.error_stage === stageId) return 'error'
     if (doc.current_stage === stageId) return 'active'
     if (currentIndex >= 0 && stageIndex < currentIndex) return 'complete'
     return 'pending'
   }
-
-  // Enrichment stages (graph/profile/advisor): coarse-grained on purpose — enrichment_status
-  // doesn't say *which* of the three is running, and a failed/cancelled enrichment must never
-  // read as "ingestion failed" here (the document is still ready and chattable regardless;
-  // see the separate enrichment note rendered below the Stepper for that detail).
-  if (doc.enrichment_status === 'done') return 'complete'
-  return 'pending'
+  return doc.enrichment_status === 'done' ? 'complete' : 'pending'
 }
 
+let messageCounter = 0
+const newId = () => `m${Date.now()}-${messageCounter++}`
+const NO_MESSAGES: ChatMessage[] = []
+const STARTERS = ['What is this document about?', 'What are the key rules or requirements?', 'Explain the most important points in detail']
+
 export function WorkspacePage() {
-  const {
-    documentId,
-    documentName,
-    sessionId,
-    lastReportId,
-    setDocument,
-    setSession,
-    setLastReportId,
-  } = useAppStore()
+  const store = useAppStore()
+  const { documentId, documentName, sessionId, lastReportId, focusedReportId, detailMode, strategyOverride } = store
+  const reduced = useReducedMotion()
+  const messages = useAppStore((s) => (documentId ? (s.conversations[documentId] ?? NO_MESSAGES) : NO_MESSAGES))
+
   const [uploading, setUploading] = useState(false)
   const { doc, refresh: refreshDoc } = useDocumentStatus(documentId)
   const { events } = useTraceEvents(documentId)
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const strategies = useStrategies(doc?.status === 'ready' ? documentId : null, doc?.enrichment_status)
   const [input, setInput] = useState('')
-  const [mode, setMode] = useState<ChatMode>('agentic')
-  const [council, setCouncil] = useState(false)
   const [revealPii, setRevealPii] = useState(false)
   const [sending, setSending] = useState(false)
-  const [expandedSteps, setExpandedSteps] = useState<number | null>(null)
+  const [activeRunId, setActiveRunId] = useState<string | null>(null)
   const [retrying, setRetrying] = useState(false)
   const [cancelling, setCancelling] = useState(false)
-  const [showStageDetails, setShowStageDetails] = useState(false)
+  const [showSteps, setShowSteps] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   const [stageStartedAt, setStageStartedAt] = useState(() => Date.now())
+  const [sendStartedAt, setSendStartedAt] = useState<number | null>(null)
+  const [hoveredChunk, setHoveredChunk] = useState<string | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [compare, setCompare] = useState<{ query?: string; selected?: string[] } | null>(null)
+  const [report, setReport] = useState<ReportResponse | null>(null)
+  const [reportError, setReportError] = useState<unknown>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevStatusRef = useRef<DocumentResponse['status'] | null>(null)
@@ -149,22 +133,31 @@ export function WorkspacePage() {
   const [atBottom, setAtBottom] = useState(true)
 
   const steps: StepperStep[] = useMemo(
-    () =>
-      INGESTION_STAGES.map((s) => ({
-        id: s.id,
-        title: s.title,
-        state: stageState(s.id, events, doc),
-      })),
+    () => INGESTION_STAGES.map((s) => ({ id: s.id, title: s.title, state: stageState(s.id, events, doc) })),
     [events, doc],
   )
 
-  // Auto-follows streamed tokens/new messages only while the user is already at (or very
-  // near) the bottom — otherwise a mid-scroll read gets yanked back down on every token. The
-  // "Jump to latest" chip (rendered below) is the escape hatch for the latter case (SC-2).
+  const strategyNames = useMemo(
+    () => Object.fromEntries((strategies.data?.strategies ?? []).map((s) => [s.id, s.display_name])),
+    [strategies.data],
+  )
+  const nameOf = useCallback((id: string | null | undefined) => (id ? (strategyNames[id] ?? id.replace(/_/g, ' ')) : ''), [strategyNames])
+  const defaultStrategy = strategies.data?.default ?? null
+  const activeStrategy = strategyOverride ?? defaultStrategy
+
+  // A chosen strategy that stopped being available (index deleted, model stopped) is dropped.
+  useEffect(() => {
+    if (!strategyOverride || !strategies.data) return
+    const chosen = strategies.data.strategies.find((s) => s.id === strategyOverride)
+    if (!chosen?.available) store.setStrategyOverride(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reacts to availability only
+  }, [strategies.data, strategyOverride])
+
+  // Follow new text only while the reader is already at the bottom.
   useEffect(() => {
     if (!atBottomRef.current) return
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
-  }, [messages])
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: reduced ? 'auto' : 'smooth' })
+  }, [messages, reduced])
 
   function handleChatScroll() {
     const el = scrollRef.current
@@ -179,51 +172,63 @@ export function WorkspacePage() {
     if (!el) return
     atBottomRef.current = true
     setAtBottom(true)
-    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    el.scrollTo({ top: el.scrollHeight, behavior: reduced ? 'auto' : 'smooth' })
   }
 
-  // Ticks once a second only while the job is actually in flight, driving both the elapsed-
-  // time readout and the 20s "taking longer than expected" threshold below.
+  const inFlight = doc?.status === 'queued' || doc?.status === 'running'
+  // One clock for the two things that show elapsed time: an ingest stage and a pending answer.
   useEffect(() => {
-    if (!doc || doc.status === 'ready' || doc.status === 'failed' || doc.status === 'cancelled') {
-      return
-    }
-    const interval = window.setInterval(() => setNow(Date.now()), 1000)
+    if (!inFlight && !sending) return
+    const interval = window.setInterval(() => setNow(Date.now()), 500)
     return () => window.clearInterval(interval)
-  }, [doc?.status])
+  }, [inFlight, sending])
 
-  // Resets the per-stage clock whenever the real current stage changes, and fires the one
-  // "ingestion finished" toast exactly once, on the queued/running -> ready transition — not
-  // on every poll tick, and not assumed synchronously from the upload response anymore (that
-  // was the root cause of the "stuck on Ingesting..." bug — see docs/TROUBLESHOOTING.md).
   useEffect(() => {
     if (!doc) return
     if (doc.current_stage !== null) setStageStartedAt(Date.now())
-    if (prevStatusRef.current !== 'ready' && doc.status === 'ready') {
+    if (prevStatusRef.current !== null && prevStatusRef.current !== 'ready' && doc.status === 'ready') {
       toast.success(`"${documentName ?? doc.filename}" is ready — ${doc.chunk_count ?? 0} chunks indexed`)
     }
     prevStatusRef.current = doc.status
-  }, [doc, documentName])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the fields that matter
+  }, [doc?.status, doc?.current_stage])
 
   const stageElapsedMs = now - stageStartedAt
-  const isInFlight = doc?.status === 'queued' || doc?.status === 'running'
-  const takingLonger = isInFlight && stageElapsedMs > TAKING_LONGER_MS
+  const takingLonger = inFlight && stageElapsedMs > TAKING_LONGER_MS
 
-  async function handleFile(file: File) {
+  // The analysis panel shows the answer the reader picked, or the latest one.
+  const shownReportId = focusedReportId ?? lastReportId
+  useEffect(() => {
+    if (!shownReportId) {
+      setReport(null)
+      return
+    }
+    let cancelled = false
+    setReportError(null)
+    getReport(shownReportId)
+      .then((data) => !cancelled && setReport(data))
+      .catch((err) => !cancelled && setReportError(err))
+    return () => {
+      cancelled = true
+    }
+  }, [shownReportId])
+
+  async function startIngest(run: () => Promise<{ document_id: string }>, name: string) {
     setUploading(true)
-    setMessages([])
-    setSession(null)
     setStageStartedAt(Date.now())
-    prevStatusRef.current = null
+    prevStatusRef.current = 'queued'
     try {
-      const { document_id } = await uploadDocument(file)
-      setDocument(document_id, file.name)
+      const { document_id } = await run()
+      store.setDocument(document_id, name)
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Upload failed')
     } finally {
       setUploading(false)
     }
   }
+
+  const handleFile = (file: File) => startIngest(() => uploadDocument(file), file.name)
+  const handleSample = () => startIngest(ingestSample, 'northwind_remote_work_travel_policy.pdf')
 
   async function handleRetry() {
     if (!documentId) return
@@ -239,7 +244,7 @@ export function WorkspacePage() {
     }
   }
 
-  async function handleCancel() {
+  async function handleCancelIngest() {
     if (!documentId) return
     setCancelling(true)
     try {
@@ -252,464 +257,633 @@ export function WorkspacePage() {
     }
   }
 
-  async function handleSend() {
-    const text = input.trim()
-    if (!text || sending || doc?.status !== 'ready') return
+  async function handleSend(text = input.trim(), overrideDetail?: DetailMode) {
+    if (!text || sending || doc?.status !== 'ready' || !documentId) return
+    const docId = documentId
+    const assistantId = newId()
+    const detail = overrideDetail ?? detailMode
     setInput('')
-    setMessages((prev) => [...prev, { role: 'user', content: text }, { role: 'assistant', content: '' }])
+    store.setFocusedReportId(null)
+    store.appendMessages(docId, [
+      { id: newId(), role: 'user', content: text },
+      { id: assistantId, role: 'assistant', content: '', streaming: true, pendingStrategy: activeStrategy ?? undefined },
+    ])
     setSending(true)
+    setSendStartedAt(Date.now())
+    atBottomRef.current = true
+    const patch = (update: (m: ChatMessage) => ChatMessage) => store.updateMessage(docId, assistantId, update)
 
     try {
       await streamChat(
         {
           message: text,
-          document_id: documentId,
-          mode,
-          council,
+          document_id: docId,
+          strategy: strategyOverride,
+          detail,
           reveal_pii: revealPii,
           session_id: sessionId,
         },
         (evt) => {
-          // Zustand setters are called here, outside setMessages's updater — calling them
-          // from inside a setState updater function is what triggered React's "Cannot update
-          // a component while rendering a different component" warning (the updater must stay
-          // a pure function of its previous state, with every other side effect kept out of it).
-          if (evt.event === 'session') setSession(evt.data.session_id)
-          if (evt.event === 'done') setLastReportId(evt.data.report_id)
-
-          // Must be a pure function of `prev` — no mutation of `prev`'s objects. React's
-          // <StrictMode> (see main.tsx) deliberately double-invokes a functional setState
-          // updater in dev to catch exactly this: the old version did `last.content +=
-          // evt.data` on `last`, a reference INTO `prev` (the outer `[...prev]` only copies
-          // the array, not its objects) — so the first, supposedly-discarded invocation's
-          // mutation was still visible to the second, "real" invocation, which then appended
-          // the same delta on top of it. Every real chat answer was silently doubled this
-          // way (see docs/TROUBLESHOOTING.md). Fixed by deriving a new message object instead
-          // of mutating the old one, so both invocations compute the same, idempotent result.
-          setMessages((prev) => {
-            const last = prev[prev.length - 1]
-            if (!last || last.role !== 'assistant') return prev
-            const updated: ChatMessage = { ...last }
-            switch (evt.event) {
-              case 'token':
-                updated.content = last.content + evt.data
-                break
-              case 'citations':
-                updated.citations = evt.data
-                break
-              case 'agent_steps':
-                updated.agentSteps = evt.data
-                break
-              case 'quality':
-                updated.quality = evt.data ?? undefined
-                break
-              case 'routing':
-                updated.routing = evt.data
-                break
-              case 'council_run_id':
-                updated.councilRunId = evt.data
-                break
-              case 'done':
-                updated.reportId = evt.data.report_id
-                break
-              case 'error':
-                updated.content = evt.data.message
-                updated.errored = true
-                break
-            }
-            return [...prev.slice(0, -1), updated]
-          })
+          switch (evt.event) {
+            case 'session':
+              store.setSession(evt.data.session_id)
+              setActiveRunId(evt.data.run_id)
+              patch((m) => ({ ...m, pendingStrategy: evt.data.strategy, pendingDetail: evt.data.detail }))
+              break
+            case 'stage':
+              patch((m) => ({ ...m, stage: evt.data.stage }))
+              break
+            case 'token':
+              patch((m) => ({ ...m, content: m.content + evt.data }))
+              break
+            case 'replace':
+              patch((m) => ({ ...m, content: evt.data }))
+              break
+            case 'citations':
+              patch((m) => ({ ...m, citations: evt.data }))
+              break
+            case 'agent_steps':
+              patch((m) => ({ ...m, agentSteps: evt.data }))
+              break
+            case 'routing':
+              patch((m) => ({ ...m, routing: evt.data }))
+              break
+            case 'council_run_id':
+              patch((m) => ({ ...m, councilRunId: evt.data }))
+              break
+            case 'answer':
+              // The answer is complete: unlock the composer now, while scoring continues.
+              patch((m) => ({ ...m, summary: evt.data, streaming: false, scoring: true, stage: undefined }))
+              setSending(false)
+              break
+            case 'quality':
+              patch((m) => ({ ...m, quality: evt.data ?? undefined, scoring: false }))
+              break
+            case 'done':
+              patch((m) => ({ ...m, reportId: evt.data.report_id, scoring: false }))
+              store.setLastReportId(evt.data.report_id)
+              break
+            case 'error':
+              // If the answer was already delivered, keep it and note what failed after.
+              patch((m) =>
+                m.summary
+                  ? { ...m, scoring: false, errorCode: evt.data.code }
+                  : { ...m, content: evt.data.message, errored: true, errorCode: evt.data.code, streaming: false, scoring: false },
+              )
+              break
+          }
         },
       )
-    } catch {
-      toast.error('Chat request failed')
+    } catch (err) {
+      patch((m) => (m.summary ? m : { ...m, content: 'The request failed before an answer arrived. Is the backend running?', errored: true, streaming: false }))
+      toast.error(err instanceof Error ? err.message : 'Chat request failed')
     } finally {
+      patch((m) => ({ ...m, streaming: false, scoring: false }))
       setSending(false)
+      setActiveRunId(null)
+      setSendStartedAt(null)
+      strategies.refresh() // a new answer may have given a strategy a measured latency
     }
   }
 
-  return (
-    <div className="flex h-dvh gap-6 p-6">
-    <div className="mx-auto flex min-h-0 min-w-0 w-full max-w-5xl flex-1 flex-col gap-6">
-      <header>
-        <h1 className="font-display text-2xl font-semibold text-foreground">Workspace</h1>
-        <p className="text-sm text-muted-foreground">
-          Upload a document, then chat with it — every answer, citation and quality score below
-          comes from a real backend call, nothing is canned.
-        </p>
-      </header>
+  const commands = useMemo<CommandPaletteItem[]>(() => {
+    const items: CommandPaletteItem[] = [
+      { id: 'toggle-deep', label: 'Toggle Deep reasoning (7–8 line answers)', group: 'Answers', onSelect: () => store.setDetailMode(useAppStore.getState().detailMode === 'deep' ? 'brief' : 'deep') },
+      { id: 'open-models', label: 'Switch model…', group: 'Models', keywords: 'llm ollama generator judge embedding', onSelect: () => setSettingsOpen(true) },
+    ]
+    for (const s of strategies.data?.strategies ?? []) {
+      if (!s.available) continue
+      items.push({
+        id: `strategy-${s.id}`,
+        label: `Switch strategy: ${s.display_name}`,
+        group: 'Strategy',
+        keywords: `rag ${s.best_for}`,
+        onSelect: () => store.setStrategyOverride(s.is_default ? null : s.id),
+      })
+    }
+    return items
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- store setters are stable
+  }, [strategies.data])
+  useCommands('workspace', commands)
 
-      {!documentId && (
-        <Card
-          className={cn(
-            'flex-1 cursor-pointer items-center justify-center border-2 border-dashed border-border bg-transparent shadow-none transition-colors hover:border-accent/50',
-          )}
+  const lastQuestion = [...messages].reverse().find((m) => m.role === 'user')?.content
+  const enriching = doc?.enrichment_status === 'running'
+  const botState: BotState = doc?.status === 'failed' ? 'error' : inFlight || uploading || sending || enriching ? 'working' : report ? 'success' : 'idle'
+  const botLabel =
+    doc?.status === 'failed'
+      ? 'Ingestion failed'
+      : inFlight
+        ? `${STAGE_TITLE[doc?.current_stage ?? ''] ?? 'Starting'}…`
+        : sending
+          ? 'Answering…'
+          : enriching
+            ? 'Building the knowledge graph and profiling the document…'
+            : report
+              ? 'Answer analysed'
+              : doc?.status === 'ready'
+                ? 'Ready — ask anything about this document'
+                : 'Waiting for a document'
+
+  // ---- no document yet -------------------------------------------------------------------
+  if (!documentId) {
+    return (
+      <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-8 overflow-hidden p-6" data-testid="workspace-empty">
+        <div className="ember-field" aria-hidden="true">
+          {Array.from({ length: 14 }).map((_, i) => (
+            <span
+              key={i}
+              style={{
+                left: `${6 + i * 6.7}%`,
+                animationDuration: `${7 + (i % 5) * 1.6}s`,
+                animationDelay: `${(i % 7) * 0.9}s`,
+                ['--drift' as string]: `${(i % 2 ? 1 : -1) * (1 + (i % 4))}rem`,
+              }}
+            />
+          ))}
+        </div>
+        <AnalystBot state={uploading ? 'working' : 'idle'} size={200} />
+        <div className="max-w-xl text-center">
+          <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground">Ask your documents. See exactly how the answer was found.</h1>
+          <p className="mt-3 text-sm text-muted-foreground">
+            Upload a document and Veritas ingests it, recommends how to search it, and answers with citations you can check.
+          </p>
+        </div>
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label="Upload a document"
           onClick={() => fileInputRef.current?.click()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              fileInputRef.current?.click()
+            }
+          }}
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             e.preventDefault()
             const file = e.dataTransfer.files[0]
             if (file) void handleFile(file)
           }}
+          className="lacquer-card flex w-full max-w-xl cursor-pointer flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-border bg-surface/80 px-6 py-10 text-center outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
-          <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
-            {uploading ? (
-              <Loader2 className="size-8 animate-spin text-accent" />
-            ) : (
-              <Upload className="size-8 text-muted-foreground" />
+          <Upload className="size-7 text-accent" aria-hidden="true" />
+          <p className="font-medium text-foreground">{uploading ? 'Uploading…' : 'Drop a document here, or click to browse'}</p>
+          <p className="text-xs text-muted-foreground">PDF, DOCX, PPTX, HTML, Markdown, TXT, CSV, EML, RTF · up to 25 MB</p>
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) void handleFile(file)
+            }}
+          />
+        </div>
+        <Button variant="outline" size="sm" disabled={uploading} data-testid="load-sample-document" onClick={() => void handleSample()}>
+          Or try the bundled sample (a remote-work and travel policy PDF)
+        </Button>
+      </div>
+    )
+  }
+
+  // ---- with a document -------------------------------------------------------------------
+  return (
+    <div className="flex min-h-0 flex-1 gap-5 p-5">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <h1 className="blade-edge truncate font-display text-xl font-semibold tracking-tight text-foreground">{documentName ?? 'Workspace'}</h1>
+            {doc && (
+              <Badge variant={STATUS_VARIANT[doc.status]} data-testid="document-status">
+                {doc.status}
+              </Badge>
             )}
-            <p className="font-medium text-foreground">
-              {uploading ? 'Uploading...' : 'Drop a document here, or click to browse'}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              PDF, DOCX, PPTX, HTML, Markdown, TXT, CSV, EML, RTF
-            </p>
-            <input
-              ref={fileInputRef}
-              type="file"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0]
-                if (file) void handleFile(file)
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <StrategyPicker
+              documentId={documentId}
+              data={strategies.data}
+              error={strategies.error}
+              selected={strategyOverride}
+              onSelect={store.setStrategyOverride}
+              onChanged={(next) => {
+                if (next) strategies.setData({ ...next, document_id: documentId })
+                strategies.refresh()
               }}
             />
-          </CardContent>
-        </Card>
-      )}
+            <ModelPicker onOpenSettings={() => setSettingsOpen(true)} />
+            {inFlight && (
+              <Button variant="ghost" size="sm" disabled={cancelling} onClick={() => void handleCancelIngest()}>
+                <Ban className="size-3.5" /> Cancel
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" onClick={() => store.setDocument(null, null)} data-testid="new-document">
+              New document
+            </Button>
+          </div>
+        </header>
 
-      {documentId && (
-        <>
-          <Card size="sm">
-            <CardHeader>
-              <div className="flex items-center justify-between gap-2">
-                <CardTitle>{documentName ?? documentId}</CardTitle>
-                <div className="flex items-center gap-2">
-                  {doc && <Badge variant={STATUS_BADGE_VARIANT[doc.status]}>{doc.status}</Badge>}
-                  {isInFlight && (
-                    <Button variant="ghost" size="sm" disabled={cancelling} onClick={() => void handleCancel()}>
-                      <Ban className="size-3.5" /> Cancel
-                    </Button>
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setDocument(null, null)
-                      setMessages([])
-                    }}
-                  >
-                    New document
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {/* 10 non-shrinking step circles have a real min-content width (~550px) that
-                  the stepper's own min-w-0 li's can't go below — scoping overflow to this one
-                  row (instead of letting it force the whole page wider) is what keeps the
-                  dashboard pane on-screen at narrow widths like 1024px (SC-5). */}
+        {/* Ingestion: the full stepper while it runs, one line once it is done. */}
+        <section className="rounded-xl border border-border bg-surface px-4 py-3" aria-label="Ingestion status" data-testid="ingestion-card">
+          {doc?.status === 'ready' && !showSteps ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+              <p data-testid="ingestion-summary">
+                <span className="text-foreground">{doc.chunk_count ?? 0} chunks</span> ({doc.chunk_strategy ?? '—'}) · {doc.graph_entity_count ?? 0} entities ·{' '}
+                {doc.graph_triple_count ?? 0} relations
+                {Object.keys(doc.pii_counts).length > 0 && (
+                  <>
+                    {' '}
+                    · PII masked:{' '}
+                    {Object.entries(doc.pii_counts)
+                      .map(([k, v]) => `${k} ×${v}`)
+                      .join(', ')}
+                  </>
+                )}
+                {enriching && <span className="text-live"> · building the graph and profile in the background…</span>}
+                {doc.enrichment_status === 'failed' && <span className="text-warning"> · background enrichment failed (chat is unaffected)</span>}
+              </p>
+              <button type="button" className="underline-offset-2 hover:underline" onClick={() => setShowSteps(true)}>
+                Show pipeline
+              </button>
+            </div>
+          ) : (
+            <>
               <div className="overflow-x-auto">
                 <Stepper steps={steps} status={doc ? 'success' : 'loading'} />
               </div>
-
-              {isInFlight && doc && (
-                <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Clock className="size-3.5" />
-                  {STAGE_TITLE[doc.current_stage ?? ''] ?? doc.current_stage ?? 'starting'} ·{' '}
-                  {Math.round(stageElapsedMs / 1000)}s elapsed
-                </p>
-              )}
-
-              <AnimatePresence>
-                {takingLonger && doc && (
-                  <AlertBanner
-                    variant="warning"
-                    title={`Taking longer than expected — still on "${STAGE_TITLE[doc.current_stage ?? ''] ?? doc.current_stage}"`}
-                    description={
-                      showStageDetails
-                        ? `Elapsed on this stage: ${Math.round(stageElapsedMs / 1000)}s. Trace WebSocket: ${events.length > 0 ? 'connected, receiving events' : 'no events received yet — falling back to polling GET /api/v1/documents/{id} every 2s.'} This can be expected on a first run while a model downloads — see docs/TROUBLESHOOTING.md.`
-                        : undefined
-                    }
-                    actions={
-                      <button
-                        type="button"
-                        onClick={() => setShowStageDetails((v) => !v)}
-                        className="text-xs font-medium text-warning underline-offset-2 hover:underline"
-                      >
-                        {showStageDetails ? 'Hide details' : 'Show details'}
-                      </button>
-                    }
-                    className="mt-3"
-                  />
-                )}
-
-                {doc?.status === 'failed' && (
-                  <AlertBanner
-                    variant="danger"
-                    title={`Ingestion failed${doc.error_stage ? ` at "${STAGE_TITLE[doc.error_stage] ?? doc.error_stage}"` : ''}`}
-                    description={doc.error_message ?? undefined}
-                    actions={
-                      <Button size="sm" disabled={retrying} onClick={() => void handleRetry()}>
-                        <RotateCcw className="size-3.5" /> Retry
-                      </Button>
-                    }
-                    className="mt-3"
-                  />
-                )}
-
-                {doc?.status === 'cancelled' && (
-                  <AlertBanner
-                    variant="info"
-                    title="Ingestion cancelled"
-                    description="You cancelled this job before it finished."
-                    actions={
-                      <Button size="sm" disabled={retrying} onClick={() => void handleRetry()}>
-                        <RotateCcw className="size-3.5" /> Retry
-                      </Button>
-                    }
-                    className="mt-3"
-                  />
-                )}
-              </AnimatePresence>
-
-              {doc?.status === 'ready' && (
-                <p className="mt-3 text-xs text-muted-foreground">
-                  {doc.chunk_count ?? 0} chunks ({doc.chunk_strategy ?? '—'}) ·{' '}
-                  {doc.graph_entity_count ?? 0} entities · {doc.graph_triple_count ?? 0} relations
-                  {Object.keys(doc.pii_counts).length > 0 && (
-                    <>
-                      {' '}
-                      · PII masked:{' '}
-                      {Object.entries(doc.pii_counts)
-                        .map(([k, v]) => `${k} ×${v}`)
-                        .join(', ')}
-                    </>
-                  )}
-                  {doc.enrichment_status === 'running' && ' · enriching graph/profile/advisor in the background...'}
-                  {doc.enrichment_status === 'failed' &&
-                    ' · background graph/profile/advisor enrichment failed (chat is unaffected)'}
-                </p>
-              )}
-            </CardContent>
-          </Card>
-
-          <div className="flex min-h-0 flex-1 flex-col gap-3">
-            <div className="relative min-h-0 flex-1">
-              <div
-                ref={scrollRef}
-                onScroll={handleChatScroll}
-                className="h-full overflow-y-auto rounded-lg border border-border bg-surface p-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                data-testid="chat-scroll-pane"
-                data-lenis-prevent
-                tabIndex={0}
-                role="log"
-                aria-label="Chat messages"
-              >
-                {messages.length === 0 && (
-                  <p className="py-12 text-center text-sm text-muted-foreground">
-                    Ask something about this document.
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                {inFlight && doc ? (
+                  <p className="flex items-center gap-1.5">
+                    <Clock className="size-3.5" /> {STAGE_TITLE[doc.current_stage ?? ''] ?? doc.current_stage ?? 'starting'} · {Math.round(stageElapsedMs / 1000)}s
+                    elapsed
                   </p>
+                ) : (
+                  <span />
                 )}
-                <div className="flex flex-col gap-4">
-                  {messages.map((m, i) => (
-                    <MessageBubble
-                      key={i}
-                      message={m}
-                      expanded={expandedSteps === i}
-                      onToggleExpand={() => setExpandedSteps(expandedSteps === i ? null : i)}
-                    />
-                  ))}
-                  {sending && messages[messages.length - 1]?.content === '' && (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="size-3.5 animate-spin" /> thinking...
-                    </div>
-                  )}
-                </div>
+                {doc?.status === 'ready' && (
+                  <button type="button" className="underline-offset-2 hover:underline" onClick={() => setShowSteps(false)}>
+                    Hide pipeline
+                  </button>
+                )}
               </div>
-
-              {!atBottom && messages.length > 0 && (
-                <button
-                  type="button"
-                  onClick={jumpToLatest}
-                  data-testid="jump-to-latest"
-                  className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-surface-raised px-3 py-1.5 text-xs font-medium text-foreground shadow-md transition-colors hover:text-accent"
-                >
-                  <ChevronDown className="size-3.5" /> Jump to latest
-                </button>
-              )}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              {(['agentic', 'hybrid', 'graph'] as ChatMode[]).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setMode(m)}
-                  className={cn(
-                    'rounded-full px-3 py-1 text-xs font-medium transition-colors',
-                    mode === m
-                      ? 'bg-accent text-on-accent'
-                      : 'bg-surface-raised text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  {m}
-                </button>
-              ))}
-              <ToggleChip label="Council" active={council} onToggle={() => setCouncil((v) => !v)} />
-              <ToggleChip
-                label="Reveal PII"
-                active={revealPii}
-                onToggle={() => setRevealPii((v) => !v)}
+            </>
+          )}
+          <AnimatePresence>
+            {takingLonger && doc && (
+              <AlertBanner
+                variant="warning"
+                title={`Taking longer than expected — still on "${STAGE_TITLE[doc.current_stage ?? ''] ?? doc.current_stage}"`}
+                description="A first run can be slow while a model downloads or loads into memory. The pipeline is still working; see docs/TROUBLESHOOTING.md if it does not move."
+                className="mt-3"
               />
-            </div>
-
-            <div className="flex gap-2">
-              <Textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault()
-                    void handleSend()
-                  }
-                }}
-                disabled={doc?.status !== 'ready'}
-                placeholder={
-                  doc?.status === 'ready'
-                    ? 'Ask a question about this document...'
-                    : 'Waiting for ingestion to finish before you can chat...'
+            )}
+            {doc?.status === 'failed' && (
+              <AlertBanner
+                variant="danger"
+                title={`Ingestion failed${doc.error_stage ? ` at "${STAGE_TITLE[doc.error_stage] ?? doc.error_stage}"` : ''}`}
+                description={doc.error_message ?? undefined}
+                actions={
+                  <Button size="sm" disabled={retrying} onClick={() => void handleRetry()}>
+                    <RotateCcw className="size-3.5" /> Retry
+                  </Button>
                 }
-                className="min-h-11 flex-1 resize-none"
+                className="mt-3"
               />
-              <Button
-                onClick={() => void handleSend()}
-                disabled={sending || !input.trim() || doc?.status !== 'ready'}
+            )}
+            {doc?.status === 'cancelled' && (
+              <AlertBanner
+                variant="info"
+                title="Ingestion cancelled"
+                description="You cancelled this job before it finished."
+                actions={
+                  <Button size="sm" disabled={retrying} onClick={() => void handleRetry()}>
+                    <RotateCcw className="size-3.5" /> Retry
+                  </Button>
+                }
+                className="mt-3"
+              />
+            )}
+          </AnimatePresence>
+        </section>
+
+        <div className="relative min-h-0 flex-1">
+          <div
+            ref={scrollRef}
+            onScroll={handleChatScroll}
+            className="h-full overflow-y-auto rounded-xl border border-border bg-surface p-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            data-testid="chat-scroll-pane"
+            tabIndex={0}
+            role="log"
+            aria-label="Chat messages"
+          >
+            {messages.length === 0 ? (
+              <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
+                <p className="text-sm text-muted-foreground">
+                  {doc?.status === 'ready' ? 'Ask something about this document.' : 'You can ask questions as soon as ingestion finishes.'}
+                </p>
+                {doc?.status === 'ready' && (
+                  <div className="flex max-w-lg flex-wrap justify-center gap-2">
+                    {STARTERS.map((q) => (
+                      <button
+                        key={q}
+                        type="button"
+                        onClick={() => void handleSend(q)}
+                        className="rounded-pill border border-border bg-surface-raised px-3 py-1.5 text-xs text-foreground transition-colors duration-micro hover:border-accent/60"
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-4">
+                {messages.map((m) => (
+                  <MessageBubble
+                    key={m.id}
+                    message={m}
+                    nameOf={nameOf}
+                    elapsedMs={m.streaming && sendStartedAt ? now - sendStartedAt : null}
+                    selected={m.reportId !== undefined && m.reportId === shownReportId}
+                    hoveredChunk={hoveredChunk}
+                    onHoverChunk={setHoveredChunk}
+                    onInspect={() => m.reportId && store.setFocusedReportId(m.reportId)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+          {!atBottom && messages.length > 0 && (
+            <button
+              type="button"
+              onClick={jumpToLatest}
+              data-testid="jump-to-latest"
+              className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-pill border border-border bg-surface-raised px-3 py-1.5 text-xs font-medium text-foreground shadow-md transition-colors duration-micro hover:text-accent"
+            >
+              <ChevronDown className="size-3.5" /> Jump to latest
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => store.setDetailMode(detailMode === 'deep' ? 'brief' : 'deep')}
+              aria-pressed={detailMode === 'deep'}
+              data-testid="deep-reasoning"
+              title="Off: a quick answer of 3–4 lines. On: a fuller answer of 7–8 lines, which takes a little longer."
+              className={cn(
+                'flex items-center gap-1.5 rounded-pill border px-3 py-1 text-xs font-medium transition-colors duration-micro',
+                detailMode === 'deep' ? 'border-accent bg-accent text-on-accent shadow-glow' : 'border-border text-muted-foreground hover:border-accent/50 hover:text-foreground',
+              )}
+            >
+              <Brain className="size-3.5" aria-hidden="true" /> Deep reasoning
+            </button>
+            <button
+              type="button"
+              onClick={() => setRevealPii((v) => !v)}
+              aria-pressed={revealPii}
+              title="Lets answers include personal data that was masked at ingestion. Each reveal is logged."
+              className={cn(
+                'rounded-pill border px-3 py-1 text-xs font-medium transition-colors duration-micro',
+                revealPii ? 'border-warning/50 bg-warning/10 text-warning' : 'border-border text-muted-foreground hover:text-foreground',
+              )}
+            >
+              Reveal PII
+            </button>
+            {messages.length > 0 && (
+              <button
+                type="button"
+                onClick={() => store.clearConversation(documentId)}
+                className="ml-auto flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
               >
+                <Eraser className="size-3" /> Clear chat
+              </button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  void handleSend()
+                }
+              }}
+              disabled={doc?.status !== 'ready'}
+              aria-label="Your question"
+              placeholder={doc?.status === 'ready' ? 'Ask a question about this document…' : 'Waiting for ingestion to finish before you can chat…'}
+              className="min-h-11 flex-1 resize-none"
+            />
+            {sending && activeRunId ? (
+              <Button variant="outline" onClick={() => void cancelRun(activeRunId).catch(() => {})} aria-label="Stop answering" data-testid="stop-answer">
+                <Square className="size-4" />
+              </Button>
+            ) : (
+              <Button onClick={() => void handleSend()} disabled={sending || !input.trim() || doc?.status !== 'ready'} aria-label="Send question" data-testid="send-question">
                 <Send className="size-4" />
               </Button>
-            </div>
+            )}
           </div>
-        </>
-      )}
-    </div>
-
-      {documentId && doc && (
-        <div className="hidden w-[400px] shrink-0 lg:block">
-          <DocumentIntelligencePanel
-            doc={doc}
-            mode={mode}
-            lastReportId={lastReportId}
-            stillIngesting={doc.status !== 'ready'}
-          />
         </div>
+      </div>
+
+      {/* Right: the analyst — recommendation before the first answer, analysis after. */}
+      <aside
+        className="hidden min-h-0 w-[420px] shrink-0 flex-col gap-3 overflow-y-auto rounded-xl border border-border bg-surface p-4 lg:flex"
+        data-testid="analyst-panel"
+        tabIndex={0}
+        role="region"
+        aria-label="Analyst"
+      >
+        <AnalystBot state={botState} size={report ? 96 : 150} label={botLabel} />
+        {doc?.status === 'ready' && (
+          <RecommendationCard
+            documentId={documentId}
+            enrichmentStatus={doc.enrichment_status}
+            nameOf={nameOf}
+            onApplied={() => {
+              store.setStrategyOverride(null)
+              strategies.refresh()
+            }}
+            onCompare={(selected) => setCompare({ query: lastQuestion, selected })}
+          />
+        )}
+        {reportError ? (
+          <ErrorState error={reportError} compact />
+        ) : shownReportId && !report ? (
+          <LoadingState shape="cards" rows={2} label="Loading the answer analysis" />
+        ) : report ? (
+          <motion.div
+            key={report.id}
+            initial={reduced ? false : { opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: reduced ? 0 : DURATION.standard, ease: EASE_ENTER }}
+          >
+            <p className="mb-2 truncate text-[11px] text-muted-foreground">
+              Analysis of: <span className="text-foreground">{report.query}</span>
+            </p>
+            <AnalysisPanel
+              report={report}
+              strategyName={nameOf(report.strategy)}
+              hoveredChunk={hoveredChunk}
+              onHoverChunk={setHoveredChunk}
+              onCompare={() => setCompare({ query: report.query })}
+            />
+          </motion.div>
+        ) : (
+          doc?.status === 'ready' && (
+            <p className="rounded-xl border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+              Ask a question and this panel will show how the answer was found: what was retrieved and why, how well each sentence is supported, and where
+              the time went.
+            </p>
+          )
+        )}
+      </aside>
+
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      {compare && strategies.data && (
+        <CompareDialog
+          open
+          onOpenChange={(open) => !open && setCompare(null)}
+          documentId={documentId}
+          strategies={strategies.data.strategies}
+          defaultStrategy={strategies.data.default}
+          initialQuery={compare.query}
+          initialSelected={compare.selected}
+          onAdopted={() => {
+            store.setStrategyOverride(null)
+            strategies.refresh()
+          }}
+        />
       )}
     </div>
-  )
-}
-
-function ToggleChip({
-  label,
-  active,
-  onToggle,
-}: {
-  label: string
-  active: boolean
-  onToggle: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      className={cn(
-        'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
-        active
-          ? 'border-accent/40 bg-accent/10 text-accent-soft'
-          : 'border-border text-muted-foreground hover:text-foreground',
-      )}
-    >
-      {label}
-    </button>
   )
 }
 
 function MessageBubble({
   message,
-  expanded,
-  onToggleExpand,
+  nameOf,
+  elapsedMs,
+  selected,
+  hoveredChunk,
+  onHoverChunk,
+  onInspect,
 }: {
   message: ChatMessage
-  expanded: boolean
-  onToggleExpand: () => void
+  nameOf: (id: string | null | undefined) => string
+  elapsedMs: number | null
+  selected: boolean
+  hoveredChunk: string | null
+  onHoverChunk: (id: string | null) => void
+  onInspect: () => void
 }) {
-  const isUser = message.role === 'user'
+  const [showSteps, setShowSteps] = useState(false)
+  const reduced = useReducedMotion()
+  if (message.role === 'user') {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-accent px-3.5 py-2.5 text-sm whitespace-pre-wrap text-on-accent">{message.content}</div>
+      </div>
+    )
+  }
+  const summary = message.summary
+  const grounding = message.quality?.grounding
+  const waiting = message.streaming && message.content === ''
   return (
-    <div className={cn('flex flex-col gap-1.5', isUser ? 'items-end' : 'items-start')}>
+    <motion.div
+      initial={reduced ? false : { opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: reduced ? 0 : DURATION.standard, ease: EASE_ENTER }}
+      className="flex flex-col items-start gap-1.5"
+      data-testid="assistant-message"
+      data-outcome={summary?.outcome}
+    >
       <div
         className={cn(
-          'max-w-[85%] rounded-lg px-3.5 py-2.5 text-sm whitespace-pre-wrap',
-          isUser
-            ? 'bg-accent text-on-accent'
-            : message.errored
-              ? 'bg-destructive/10 text-destructive'
-              : 'bg-surface-raised text-foreground',
+          'max-w-[88%] rounded-2xl rounded-bl-md border px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap text-foreground',
+          message.errored ? 'border-danger/40 bg-danger/10' : selected ? 'border-accent/50 bg-surface-raised' : 'border-border bg-surface-raised',
         )}
       >
-        {message.content || ' '}
+        {waiting ? (
+          <span className="flex items-center gap-2 text-muted-foreground" role="status" data-testid="answer-pending">
+            <span className="flex gap-1" aria-hidden="true">
+              {[0, 1, 2].map((i) => (
+                <motion.span
+                  key={i}
+                  className="size-1.5 rounded-full bg-live"
+                  animate={reduced ? undefined : { opacity: [0.3, 1, 0.3], y: [0, -2, 0] }}
+                  transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.15 }}
+                />
+              ))}
+            </span>
+            {STAGE_WORDS[message.stage ?? ''] ?? 'starting'}
+            {message.pendingStrategy && <span>· {nameOf(message.pendingStrategy)}</span>}
+            {elapsedMs !== null && <span className="tabular-nums">· {(elapsedMs / 1000).toFixed(0)}s</span>}
+          </span>
+        ) : message.errored ? (
+          <span role="alert">{message.content}</span>
+        ) : (
+          <AnswerText content={message.content} citations={message.citations ?? []} grounding={grounding} hoveredChunk={hoveredChunk} onHoverChunk={onHoverChunk} />
+        )}
       </div>
 
-      {!isUser && (message.citations?.length || message.quality || message.routing) && (
-        <div className="flex max-w-[85%] flex-col gap-2">
-          {!!message.citations?.length && (
-            <div className="flex flex-wrap gap-1.5">
-              {message.citations.map((c) => (
-                <span
-                  key={c.marker}
-                  title={c.text}
-                  className="cursor-default rounded-full bg-surface-raised px-2 py-0.5 text-xs text-muted-foreground"
-                >
-                  [{c.marker}] {c.chunk_id.slice(0, 8)}
-                </span>
-              ))}
-            </div>
+      {summary && (
+        <div className="flex max-w-[88%] flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground" data-testid="answer-meta">
+          <span>
+            Answered with: <span className="font-medium text-foreground">{nameOf(summary.strategy)}</span>
+          </span>
+          <span>· {summary.detail === 'deep' ? 'deep' : 'quick'}</span>
+          <span className="tabular-nums" data-testid="answer-latency">
+            · {ms(summary.latency_ms)}
+          </span>
+          {message.routing && (
+            <span>
+              · {modelName(message.routing.model_used)}
+              {message.routing.fell_back ? ' (fallback)' : ''}
+            </span>
           )}
-          <div className="flex flex-wrap items-center gap-1.5">
-            {message.quality && (
-              <Badge variant="outline" title={JSON.stringify(message.quality, null, 2)}>
-                {message.quality.label}: confidence {Math.round(message.quality.confidence * 100)}%
-              </Badge>
-            )}
-            {message.routing && (
-              <Badge variant={message.routing.fell_back ? 'warning' : 'outline'}>
-                {message.routing.model_used.replace('ollama/', '')}
-                {message.routing.fell_back ? ' (fallback)' : ''} ·{' '}
-                {Math.round(message.routing.latency_ms)}ms
-              </Badge>
-            )}
-            {message.councilRunId && (
-              <Badge variant="glow">council run {message.councilRunId.slice(0, 8)}</Badge>
-            )}
-            {!!message.agentSteps?.length && (
-              <button
-                type="button"
-                onClick={onToggleExpand}
-                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-              >
-                {message.agentSteps.length} step{message.agentSteps.length === 1 ? '' : 's'}
-                {expanded ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
-              </button>
-            )}
-          </div>
-          {expanded && message.agentSteps && (
-            <ol className="flex flex-col gap-1 border-l border-border pl-3 text-xs text-muted-foreground">
-              {message.agentSteps.map((s, i) => (
-                <li key={i}>
-                  <span className="font-medium text-foreground">{s.node}</span>: {s.summary}
-                </li>
-              ))}
-            </ol>
+          {summary.cache_hit && <Badge variant="outline">cached</Badge>}
+          {message.councilRunId && <Badge variant="glow">council</Badge>}
+          {message.scoring ? (
+            <span className="flex items-center gap-1" role="status">
+              <Skeleton className="h-3 w-16" /> scoring…
+            </span>
+          ) : message.quality ? (
+            <Badge variant="outline" data-testid="answer-quality-badge" title="Scored by a judge model without a reference answer.">
+              estimated ·{' '}
+              {grounding
+                ? `${grounding.supported}/${grounding.total} sentences supported`
+                : message.quality.confidence !== null
+                  ? `confidence ${Math.round(message.quality.confidence * 100)}%`
+                  : 'not measured'}
+            </Badge>
+          ) : null}
+          {message.errorCode === 'report_failed' && <Badge variant="warning">analysis could not be saved</Badge>}
+          {message.reportId && (
+            <button type="button" onClick={onInspect} className={cn('underline-offset-2 hover:underline', selected && 'text-accent-soft')} data-testid="inspect-answer">
+              {selected ? 'shown in the analysis panel' : 'view analysis'}
+            </button>
+          )}
+          {!!message.agentSteps?.length && (
+            <button type="button" onClick={() => setShowSteps((v) => !v)} aria-expanded={showSteps} className="underline-offset-2 hover:underline">
+              {message.agentSteps.length} step{message.agentSteps.length === 1 ? '' : 's'}
+            </button>
           )}
         </div>
       )}
-    </div>
+      {showSteps && message.agentSteps && (
+        <ol className="flex max-w-[88%] flex-col gap-1 border-l border-border pl-3 text-xs text-muted-foreground">
+          {message.agentSteps.map((s, i) => (
+            <li key={i}>
+              <span className="font-medium text-foreground">{s.node.replace(/_/g, ' ')}</span>: {s.summary}
+            </li>
+          ))}
+        </ol>
+      )}
+    </motion.div>
   )
 }

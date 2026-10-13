@@ -1,14 +1,14 @@
 import {
   createContext,
   Fragment,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from 'react'
-import { Sparkles, SunMoon } from 'lucide-react'
-import { toast } from 'sonner'
+import { SunMoon } from 'lucide-react'
 import {
   Command,
   CommandDialog,
@@ -28,36 +28,43 @@ export interface CommandPaletteItem {
   icon?: ReactNode
   shortcut?: string
   group?: string
+  /** Extra words to match on besides the label. */
+  keywords?: string
   onSelect: () => void
 }
 
 interface CommandPaletteContextValue {
   open: boolean
   setOpen: (open: boolean) => void
+  register: (source: string, items: CommandPaletteItem[]) => void
+  unregister: (source: string) => void
 }
 
 const CommandPaletteContext = createContext<CommandPaletteContextValue | null>(null)
 
-/** Lets any component (a header button, a menu item, ...) open the palette too, not just the Cmd/Ctrl+K binding. */
 export function useCommandPalette(): CommandPaletteContextValue {
   const ctx = useContext(CommandPaletteContext)
   if (!ctx) throw new Error('useCommandPalette must be used within a <CommandPaletteProvider>')
   return ctx
 }
 
+/** Contributes commands for as long as the calling component is mounted. `items` should be
+ * memoised by the caller; a new array re-registers. */
+export function useCommands(source: string, items: CommandPaletteItem[]) {
+  const { register, unregister } = useCommandPalette()
+  useEffect(() => {
+    register(source, items)
+    return () => unregister(source)
+  }, [source, items, register, unregister])
+}
+
 /**
- * Owns the palette's open state, the global Cmd/Ctrl+K binding, and renders
- * the dialog itself — wrap the app with this once. Child components reach
- * the same state via useCommandPalette() (e.g. a visible "⌘K" header button).
+ * Owns the palette's open state, the global Cmd/Ctrl+K binding and the dialog itself. Any
+ * component under it adds real actions with useCommands().
  */
-export function CommandPaletteProvider({
-  children,
-  items = [],
-}: {
-  children: ReactNode
-  items?: CommandPaletteItem[]
-}) {
+export function CommandPaletteProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false)
+  const [sources, setSources] = useState<Record<string, CommandPaletteItem[]>>({})
   const { toggleTheme } = useTheme()
 
   useEffect(() => {
@@ -71,30 +78,33 @@ export function CommandPaletteProvider({
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [])
 
-  const value = useMemo(() => ({ open, setOpen }), [open])
+  const register = useCallback((source: string, items: CommandPaletteItem[]) => {
+    setSources((prev) => ({ ...prev, [source]: items }))
+  }, [])
+  const unregister = useCallback((source: string) => {
+    setSources((prev) => {
+      if (!(source in prev)) return prev
+      const next = { ...prev }
+      delete next[source]
+      return next
+    })
+  }, [])
 
-  const builtins: CommandPaletteItem[] = [
-    {
-      id: 'toggle-theme',
-      label: 'Toggle dark / light theme',
-      icon: <SunMoon className="size-4" />,
-      shortcut: 'T',
-      group: 'Appearance',
-      onSelect: toggleTheme,
-    },
-    {
-      id: 'show-toast',
-      label: 'Show an example toast',
-      icon: <Sparkles className="size-4" />,
-      group: 'Demo',
-      onSelect: () =>
-        toast('This is an example toast', {
-          description: 'Triggered from the command palette.',
-        }),
-    },
-  ]
+  const value = useMemo(() => ({ open, setOpen, register, unregister }), [open, register, unregister])
 
-  const allItems = [...builtins, ...items]
+  const allItems = useMemo<CommandPaletteItem[]>(
+    () => [
+      ...Object.values(sources).flat(),
+      {
+        id: 'toggle-theme',
+        label: 'Toggle dark / light theme',
+        icon: <SunMoon className="size-4" />,
+        group: 'Appearance',
+        onSelect: toggleTheme,
+      },
+    ],
+    [sources, toggleTheme],
+  )
   const groups = Array.from(new Set(allItems.map((item) => item.group ?? 'General')))
 
   return (
@@ -107,9 +117,9 @@ export function CommandPaletteProvider({
         description="Search for an action and run it"
       >
         <Command>
-          <CommandInput placeholder="Type a command or search…" aria-label="Search commands" />
+          <CommandInput placeholder="Jump to a tab, switch strategy or model, run a check…" aria-label="Search commands" />
           <CommandList>
-            <CommandEmpty>No results found.</CommandEmpty>
+            <CommandEmpty>No matching command.</CommandEmpty>
             {groups.map((group, index) => (
               <Fragment key={group}>
                 {index > 0 && <CommandSeparator />}
@@ -119,9 +129,11 @@ export function CommandPaletteProvider({
                     .map((item) => (
                       <CommandItem
                         key={item.id}
+                        value={`${item.label} ${item.keywords ?? ''}`}
+                        data-testid={`command-${item.id}`}
                         onSelect={() => {
-                          item.onSelect()
                           setOpen(false)
+                          item.onSelect()
                         }}
                       >
                         {item.icon}

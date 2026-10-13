@@ -4,67 +4,80 @@ import type { TraceEvent } from '@/lib/api/types'
 const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 10_000
 
-/** Subscribes to /ws/trace/{sessionId} — every event here is real, published by the backend's
- * trace_bus as pipeline stages actually run (see backend/app/api/routes/trace.py). This hook
- * never synthesizes an event; `events` is empty until the server sends something real.
+export type SocketState = 'idle' | 'connecting' | 'open' | 'closed'
+
+/**
+ * Subscribes to /ws/trace/{sessionId}. Every event is real, published by the backend's
+ * trace bus as a pipeline stage runs; this hook never synthesizes one.
  *
- * If the socket drops unexpectedly (not because `sessionId` changed or the component
- * unmounted), it reconnects with exponential backoff instead of going silent — see
- * docs/TROUBLESHOOTING.md. This is a nice-to-have for the live per-stage view; the document's
- * overall status/error always comes from useDocumentStatus's polling regardless of whether
- * the socket ever reconnects, so a permanently blocked WebSocket still never hangs the UI. */
-export function useTraceEvents(sessionId: string | null): {
+ * `socket` is the connection's actual state: "idle" with no session to watch, "open" only
+ * while the socket is connected. Anything that animates from trace events must stop when it
+ * is not "open". A dropped socket reconnects with exponential backoff; the server replays
+ * history on reconnect, de-duplicated here by `seq`.
+ *
+ * `enabled: false` closes the socket (used by the Architecture tab's disconnect control).
+ */
+export function useTraceEvents(
+  sessionId: string | null,
+  { enabled = true }: { enabled?: boolean } = {},
+): {
   events: TraceEvent[]
   connected: boolean
+  socket: SocketState
 } {
   const [events, setEvents] = useState<TraceEvent[]>([])
-  const [connected, setConnected] = useState(false)
+  const [socket, setSocket] = useState<SocketState>('idle')
   const sessionIdRef = useRef(sessionId)
 
   useEffect(() => {
     setEvents([])
+  }, [sessionId])
+
+  useEffect(() => {
     sessionIdRef.current = sessionId
     if (!sessionId) {
-      setConnected(false)
+      setSocket('idle')
+      return
+    }
+    if (!enabled) {
+      setSocket('closed')
       return
     }
 
     let intentionallyClosed = false
-    let socket: WebSocket | null = null
+    let ws: WebSocket | null = null
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined
     let attempt = 0
 
     const connect = () => {
+      setSocket('connecting')
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      socket = new WebSocket(`${protocol}//${window.location.host}/ws/trace/${sessionId}`)
+      ws = new WebSocket(`${protocol}//${window.location.host}/ws/trace/${sessionId}`)
 
-      socket.onopen = () => {
+      ws.onopen = () => {
         attempt = 0
-        setConnected(true)
+        setSocket('open')
       }
-      socket.onclose = () => {
-        setConnected(false)
+      ws.onclose = () => {
         if (intentionallyClosed) return
+        setSocket('closed')
         const delay = Math.min(RECONNECT_BASE_MS * 2 ** attempt, RECONNECT_MAX_MS)
         attempt += 1
         reconnectTimer = setTimeout(connect, delay)
       }
-      socket.onerror = () => setConnected(false)
-      socket.onmessage = (ev: MessageEvent<string>) => {
+      ws.onerror = () => setSocket('closed')
+      ws.onmessage = (ev: MessageEvent<string>) => {
         try {
           const parsed = JSON.parse(ev.data) as TraceEvent
           if (sessionIdRef.current !== sessionId) return
           setEvents((prev) => {
-            // A reconnect gets the full history replayed from the start (see
-            // app/api/routes/trace.py) — without de-duping by `seq`, every event already in
-            // `prev` would be appended a second time. Sorting by `seq` too makes `events`
-            // safe to treat as the single, deterministic source of truth for replay/scrubbing
-            // regardless of the order frames actually arrived in.
+            // A reconnect replays the full history; de-dupe on (seq, status) — a stage's
+            // running and done events share nothing but the session, and seq is unique.
             if (prev.some((e) => e.seq === parsed.seq)) return prev
             return [...prev, parsed].sort((a, b) => a.seq - b.seq)
           })
         } catch {
-          // Malformed frame — drop it rather than crash the whole trace feed.
+          // Malformed frame: drop it rather than crash the feed.
         }
       }
     }
@@ -73,9 +86,9 @@ export function useTraceEvents(sessionId: string | null): {
     return () => {
       intentionallyClosed = true
       if (reconnectTimer) clearTimeout(reconnectTimer)
-      socket?.close()
+      ws?.close()
     }
-  }, [sessionId])
+  }, [sessionId, enabled])
 
-  return { events, connected }
+  return { events, connected: socket === 'open', socket }
 }

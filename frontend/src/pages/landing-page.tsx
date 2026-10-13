@@ -9,7 +9,7 @@ import {
   ShieldAlert,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { TiltCard } from '@/components/ui/tilt-card'
+import { SmoothScroll } from '@/lib/smooth-scroll'
 import { ThemeToggle } from '@/components/ui/theme-toggle'
 
 const FEATURES = [
@@ -17,7 +17,7 @@ const FEATURES = [
     icon: MessageSquare,
     title: 'Agentic RAG',
     description:
-      'A LangGraph state machine — planner, rewriter, retriever, critic, synthesizer, verifier — with hybrid and graph modes as simpler alternatives, plus an opt-in multi-model council vote.',
+      'A LangGraph state machine — planner, rewriter, retriever, critic, synthesizer, verifier — with seven simpler strategies you can switch to per question, and an opt-in multi-model council.',
   },
   {
     icon: LayoutDashboard,
@@ -41,7 +41,7 @@ const FEATURES = [
     icon: FlaskConical,
     title: 'Self-benchmarking',
     description:
-      'A real 5-candidate chunking tournament profiles every document and suggests a better config, backed by a full retrieval/agent benchmark suite.',
+      'Every document is profiled and a strategy is recommended with its reasons; comparisons run every strategy on the same questions and report measured differences.',
   },
   {
     icon: ShieldAlert,
@@ -53,6 +53,7 @@ const FEATURES = [
 
 export function LandingPage() {
   return (
+    <SmoothScroll>
     <div className="min-h-screen bg-background text-foreground">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
         <span className="font-display text-lg font-semibold tracking-tight">Veritas</span>
@@ -90,11 +91,14 @@ export function LandingPage() {
 
       <section className="mx-auto grid max-w-6xl grid-cols-1 gap-5 px-6 pb-24 sm:grid-cols-2 lg:grid-cols-3">
         {FEATURES.map((f) => (
-          <TiltCard key={f.title} className="flex flex-col gap-3">
+          <article
+            key={f.title}
+            className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-6 shadow-xs transition-[border-color,box-shadow] duration-standard ease-enter hover:border-accent/40 hover:shadow-md"
+          >
             <f.icon className="size-6 text-accent-soft" aria-hidden="true" />
             <h2 className="font-display text-base font-semibold text-foreground">{f.title}</h2>
             <p className="text-sm text-muted-foreground">{f.description}</p>
-          </TiltCard>
+          </article>
         ))}
       </section>
 
@@ -102,5 +106,6 @@ export function LandingPage() {
         Built with a local-first stack: FastAPI, LangGraph, Ollama, ChromaDB, and React.
       </footer>
     </div>
+    </SmoothScroll>
   )
 }

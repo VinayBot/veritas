@@ -1,8 +1,8 @@
 import { motion, useReducedMotion } from 'framer-motion'
 import { Check, X } from 'lucide-react'
-import { EASE_OUT, DURATION } from '@/lib/motion'
+import { EASE_ENTER, DURATION } from '@/lib/motion'
 import { Skeleton } from './skeleton'
-import { StateMessage, type ComponentStatus } from './state-message'
+import { EmptyState, type ComponentStatus } from './empty-state'
 import { cn } from '@/lib/utils'
 
 export type StepState = 'pending' | 'active' | 'complete' | 'error'
@@ -68,8 +68,8 @@ export function Stepper({
 
   if (status === 'empty' || status === 'error') {
     return (
-      <StateMessage
-        status={status}
+      <EmptyState
+        tone={status}
         title={status === 'empty' ? 'No steps yet' : 'Could not load steps'}
         description={status === 'empty' ? emptyDescription : errorDescription}
         className={className}
@@ -112,7 +112,7 @@ export function Stepper({
                     style={{ transformOrigin: isVertical ? 'top' : 'left' }}
                     initial={false}
                     animate={isVertical ? { scaleY: segmentFilled ? 1 : 0 } : { scaleX: segmentFilled ? 1 : 0 }}
-                    transition={{ duration: reduced ? 0 : DURATION.slow, ease: EASE_OUT }}
+                    transition={{ duration: reduced ? 0 : DURATION.large, ease: EASE_ENTER }}
                   />
                 </div>
               )}
@@ -157,7 +157,7 @@ function StepIndicator({
         state === 'error' && 'border-danger bg-danger/10 text-danger',
       )}
       animate={{ scale: state === 'active' ? 1.1 : 1 }}
-      transition={{ duration: reduced ? 0 : DURATION.fast, ease: EASE_OUT }}
+      transition={{ duration: reduced ? 0 : DURATION.micro, ease: EASE_ENTER }}
     >
       {state === 'complete' ? (
         <Check className="size-4" />

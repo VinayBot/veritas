@@ -38,7 +38,7 @@ test('a corrupt PDF shows a clear error with Retry, never spins forever', async 
   await page.goto('/app')
   await page.locator('input[type="file"]').setInputFiles(CORRUPT_PDF)
 
-  await expect(page.getByText(/ingestion failed/i)).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByRole('alert').getByText(/ingestion failed/i)).toBeVisible({ timeout: 30_000 })
   // The regression this guards: Docling's raw exception leaked an internal content-hash key.
   await expect(page.getByText(/could not load document/i)).not.toBeVisible()
   await expect(page.getByRole('button', { name: /retry/i })).toBeVisible()
@@ -48,7 +48,7 @@ test('a 0-byte file shows a clear error, never spins forever', async ({ page }) 
   await page.goto('/app')
   await page.locator('input[type="file"]').setInputFiles(EMPTY_PDF)
 
-  await expect(page.getByText(/ingestion failed/i)).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByRole('alert').getByText(/ingestion failed/i)).toBeVisible({ timeout: 30_000 })
   await expect(page.getByRole('button', { name: /retry/i })).toBeVisible()
 })
 

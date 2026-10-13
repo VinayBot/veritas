@@ -1,35 +1,43 @@
 import type { Transition } from 'framer-motion'
 
 /**
- * Durations in seconds, mirroring the --duration-120/240/480/800 tokens in
- * src/index.css. Framer Motion transitions take seconds, CSS takes ms — this
- * is the one JS-side source of truth so the two never drift apart.
+ * Durations in seconds, mirroring --duration-micro/standard/large in
+ * src/styles/tokens.css. Framer Motion takes seconds, CSS takes ms — this is the one
+ * JS-side source so the two never drift.
  */
 export const DURATION = {
-  fast: 0.12,
-  base: 0.24,
-  slow: 0.48,
-  slower: 0.8,
+  micro: 0.12,
+  standard: 0.2,
+  large: 0.32,
 } as const
 
-/** Snappy, slightly-overshooting spring for small-travel feedback (button press, badge pop, tilt settle). */
+/** Entrance curve, mirrors --ease-enter. */
+export const EASE_ENTER: [number, number, number, number] = [0.32, 0.72, 0, 1]
+/** Exit curve (ease-in), mirrors --ease-exit. */
+export const EASE_EXIT: [number, number, number, number] = [0.4, 0, 1, 1]
+
+/** Snappy spring for small-travel feedback (button press, toggle thumb). */
 export const SPRING: Transition = { type: 'spring', stiffness: 300, damping: 20, mass: 0.9 }
 
-/** Softer, more damped spring for larger-travel motion (drawer slide, gauge sweep, stepper progress). */
-export const SPRING_SOFT: Transition = { type: 'spring', stiffness: 180, damping: 24, mass: 1 }
+/** Softer spring for larger-travel motion (drawer slide, diagram node entrance). */
+export const SPRING_SOFT: Transition = { type: 'spring', stiffness: 260, damping: 26, mass: 1 }
 
-/** Standard "ease-out" deceleration curve, mirrors --ease-out in src/index.css. */
-export const EASE_OUT: [number, number, number, number] = [0.16, 1, 0.3, 1]
+/** Standard entrance tween. */
+export const TWEEN_ENTER: Transition = { duration: DURATION.standard, ease: EASE_ENTER }
 
-/** Plain tween using EASE_OUT, for fades/slides that shouldn't spring. */
-export const TWEEN_BASE: Transition = { duration: DURATION.base, ease: EASE_OUT }
+/** List/table stagger: 30ms apart, and only the first ten items animate at all. */
+export const STAGGER_STEP = 0.03
+export const STAGGER_MAX_ITEMS = 10
+
+export function staggerDelay(index: number): number {
+  return index < STAGGER_MAX_ITEMS ? index * STAGGER_STEP : 0
+}
 
 /**
- * Swaps any transition for a near-instant one when the viewer prefers reduced
- * motion. The global CSS rule in index.css already collapses CSS transitions;
- * this is the equivalent for Framer-Motion-driven transform/opacity animation,
- * which that CSS rule cannot reach.
+ * Swaps any transition for an instant one when the viewer prefers reduced motion. The
+ * global CSS rule in index.css collapses CSS transitions; this is the equivalent for
+ * Framer-Motion-driven animation, which that rule cannot reach.
  */
 export function reducedTransition(reduced: boolean, transition: Transition): Transition {
-  return reduced ? { duration: 0.001 } : transition
+  return reduced ? { duration: 0 } : transition
 }

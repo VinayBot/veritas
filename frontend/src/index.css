@@ -7,213 +7,16 @@
    the Radix-based Dialog/Tooltip/Command primitives' default open/close state. */
 @import 'tw-animate-css';
 
+@import './styles/tokens.css';
+
 /*
- * Light is the default theme (see docs/DECISIONS.md); dark remains a full,
- * equally-supported palette, just opt-in. `.dark`-shaped tooling (including
- * shadcn's own generated component source, which hardcodes `dark:*` utility
- * classes) assumes dark mode is opt-IN via a `.dark` class — this project
- * still keys everything off a `.light` class instead (opting OUT of dark),
- * which is why index.html's bootstrap script adds `.light` by default now
- * rather than leaving <html> bare. Both `light:` and `dark:` are redeclared
- * below so that EITHER prefix means exactly what it says relative to our
- * actual toggle, regardless of the viewer's OS color-scheme preference.
+ * Dark is the default theme; light is opt-in via a `.light` class on <html> (index.html's
+ * bootstrap script and src/lib/theme.tsx). shadcn's generated component source hardcodes
+ * `dark:*` utilities that assume a `.dark` class, so both prefixes are redeclared here to
+ * mean exactly what they say relative to this project's actual toggle.
  */
 @custom-variant light (&:where(.light, .light *));
 @custom-variant dark (&:where(:not(.light)):where(:not(.light *)));
-
-@theme {
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-display: 'Space Grotesk', system-ui, sans-serif;
-
-  /* ---- Base palette (dark-first; literal values) ---- */
-  --color-background: #07060b;
-  --color-surface: #0f0e17;
-  --color-surface-raised: #161522;
-  --color-border: #232233;
-  --color-foreground: #f2f1f7;
-  --color-muted: #8d8aa3;
-  --color-accent: #8b5cf6;
-  --color-accent-soft: #c4b5fd;
-  --color-success: #34d399;
-  --color-warning: #fbbf24;
-  --color-danger: #f87171;
-  /* Fixed (non-themed) ink for text sitting on top of a vivid accent/danger
-     fill — accent/danger are themselves the same hex in both themes, and
-     neither white nor the flipping --color-foreground clears 4.5:1 against
-     them (verified: white-on-accent 4.23:1, foreground-on-accent 3.77:1), so
-     this is a third, deliberately constant value rather than an alias. */
-  --color-on-accent: #07060b;
-
-  /* ---- Radii ---- */
-  --radius-card: 1rem;
-  --radius-pill: 999px;
-
-  /* ---- Shadows ---- */
-  --shadow-xs: 0 1px 2px 0 color-mix(in srgb, black 35%, transparent);
-  --shadow-sm: 0 2px 8px -2px color-mix(in srgb, black 45%, transparent);
-  --shadow-md: 0 12px 32px -12px color-mix(in srgb, black 55%, transparent);
-  --shadow-lg: 0 32px 64px -24px color-mix(in srgb, black 60%, transparent);
-  --shadow-glow:
-    0 0 0 1px color-mix(in srgb, var(--color-accent) 40%, transparent),
-    0 0 40px -4px color-mix(in srgb, var(--color-accent) 55%, transparent);
-
-  /* ---- Blur levels ---- */
-  --blur-glass: 16px;
-  --blur-ambient: 96px;
-
-  /* ---- Spacing scale ----
-     Base unit stays Tailwind's default (--spacing: 0.25rem / 4px), which
-     every numbered utility (p-4, gap-2, ...) already derives from. Only the
-     semantic, named extras live here. */
-  --spacing-gutter: 1.5rem;
-  --spacing-section: 6rem;
-
-  /* ---- Z-index layers ---- */
-  --z-base: 0;
-  --z-raised: 10;
-  --z-sticky: 20;
-  --z-overlay: 40;
-  --z-drawer: 50;
-  --z-popover: 60;
-  --z-toast: 70;
-  --z-tooltip: 80;
-
-  /* ---- Gradients ---- */
-  --gradient-brand: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-soft) 100%);
-  --gradient-border: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--color-accent-soft) 80%, transparent) 0%,
-    color-mix(in srgb, var(--color-accent) 15%, transparent) 50%,
-    color-mix(in srgb, var(--color-accent-soft) 65%, transparent) 100%
-  );
-  --gradient-glow: radial-gradient(
-    circle at center,
-    color-mix(in srgb, var(--color-accent) 35%, transparent) 0%,
-    transparent 70%
-  );
-
-  /* ---- Motion ---- */
-  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --duration-120: 120ms;
-  --duration-240: 240ms;
-  --duration-480: 480ms;
-  --duration-800: 800ms;
-
-  /* ---- Fluid type scale ---- */
-  --text-hero: clamp(2.75rem, 2rem + 4vw, 6rem);
-  --text-hero--line-height: 1.02;
-  --text-display: clamp(2rem, 1.5rem + 2.5vw, 3.5rem);
-  --text-display--line-height: 1.05;
-  --text-title: clamp(1.25rem, 1.1rem + 0.6vw, 1.75rem);
-  --text-title--line-height: 1.25;
-}
-
-/* Aliases that must stay live `var()` references (never baked to a literal
-   at build time) because what they point at flips under `:root.light`. This
-   is also how shadcn/ui's own generator splits its tokens; following the
-   same split keeps `npx shadcn diff` sane later. */
-@theme inline {
-  --font-heading: var(--font-display);
-
-  --color-card: var(--color-surface-raised);
-  --color-card-foreground: var(--color-foreground);
-  --color-popover: var(--color-surface-raised);
-  --color-popover-foreground: var(--color-foreground);
-  --color-primary: var(--color-accent);
-  --color-primary-foreground: var(--color-on-accent);
-  --color-secondary: var(--color-surface-raised);
-  --color-secondary-foreground: var(--color-foreground);
-  --color-muted-foreground: var(--color-muted);
-  --color-accent-foreground: var(--color-on-accent);
-  --color-destructive: var(--color-danger);
-  --color-destructive-foreground: var(--color-on-accent);
-  --color-input: var(--color-border);
-  --color-ring: var(--color-accent);
-
-  /* shadcn component source (button.tsx, card.tsx, sonner.tsx, ...)
-     references these radius/role names as bare `var(--x)` inside arbitrary
-     values and inline styles, not through a Tailwind-generated class — see
-     the matching bare declarations in :root below. */
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
-}
-
-/* Bare (non `--color-`/`--radius-`-namespaced) passthroughs for the handful
-   of generated files that read a CSS var directly (color-mix() arbitrary
-   values, inline `style={{...}}` objects) instead of via a Tailwind utility
-   class. Defined once — each simply forwards to the real token above, so it
-   stays correct under `.light` without needing its own override. */
-:root {
-  --radius: 0.75rem;
-  --foreground: var(--color-foreground);
-  --secondary: var(--color-secondary);
-  --popover: var(--color-popover);
-  --popover-foreground: var(--color-popover-foreground);
-  --border: var(--color-border);
-}
-
-:root.light {
-  /* A soft lavender-tinted white (not flat #fff) so the brand accent's hue carries through
-     the whole canvas, with --surface-raised distinctly lighter than --surface again (the
-     flaw in the original pass: both were #ffffff, flattening the depth cue dark mode gets
-     for free from its surface/surface-raised gap) so cards/popovers read as "elevated"
-     against the page the same way they do in dark mode. */
-  --color-background: #f6f5fb;
-  --color-surface: #ffffff;
-  --color-surface-raised: #f3f1fa;
-  --color-border: #e4e1f0;
-  --color-foreground: #0f0e17;
-  --color-muted: #5c5a70;
-
-  /* The dark-mode hexes for danger/warning/success/accent-soft fail WCAG AA
-     as text on a near-white background (checked: 2.59:1, 1.56:1, 1.80:1,
-     1.73:1 — all below the 4.5:1 minimum), so light mode gets darkened,
-     verified replacements instead of reusing the dark-mode value. --accent
-     itself is intentionally unchanged — it already clears 3:1 (non-text) on
-     both backgrounds and is used as a solid fill via --color-on-accent, not
-     as small text, in both themes. */
-  --color-danger: #b91c1c;
-  --color-warning: #92400e;
-  --color-success: #047857;
-  --color-accent-soft: #6d28d9;
-}
-
-/* Scoped tokens for the Architecture and Evaluation surfaces (G7): these two surfaces are
-   always dark in BOTH global themes, so they get their own token namespace instead of
-   reading --color-background/--color-surface/etc., which flip under :root.light. Applied to
-   a wrapper element (SystemDesignView's root, the Evaluation page's root), never to :root. */
-.theme-arch {
-  --arch-canvas: #000000;
-  --arch-surface: #13112a;
-  --arch-surface-raised: #0d0c1a;
-  --arch-border: rgba(255, 255, 255, 0.15);
-  --arch-border-strong: rgba(255, 255, 255, 0.3);
-  --arch-text: #ffffff;
-  --arch-text-muted: rgba(255, 255, 255, 0.6);
-  --arch-text-faint: rgba(255, 255, 255, 0.4);
-}
-
-.theme-eval {
-  --ev-bg-from: #23204f;
-  --ev-bg-to: #181640;
-  --ev-border: rgba(140, 130, 255, 0.25);
-  --ev-border-strong: rgba(140, 130, 255, 0.5);
-  --ev-text: #ffffff;
-  --ev-value: #a9a3ff;
-  --ev-muted: rgba(255, 255, 255, 0.55);
-  --ev-track: #2a2760;
-  --ev-fill: #6c63ff;
-  --ev-high: #4ade80;
-  --ev-high-bg: rgba(34, 197, 94, 0.15);
-  --ev-medium: #f5a524;
-  --ev-medium-bg: rgba(245, 165, 36, 0.15);
-}
 
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -229,14 +32,20 @@
 body {
   margin: 0;
   background: var(--color-background);
+  /* Two faint lacquer glows behind everything: crimson top-left, gold bottom-right. Static,
+     so it costs nothing per frame. */
+  background-image:
+    radial-gradient(60rem 40rem at -10% -20%, color-mix(in srgb, var(--color-accent) 14%, transparent), transparent 60%),
+    radial-gradient(50rem 36rem at 110% 120%, color-mix(in srgb, var(--color-gold) 9%, transparent), transparent 60%);
+  background-attachment: fixed;
   color: var(--color-foreground);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   /* Smooths the dark/light toggle itself. Collapsed to ~0 by the
      prefers-reduced-motion rule above like every other transition here. */
   transition:
-    background-color var(--duration-480) var(--ease-out),
-    color var(--duration-480) var(--ease-out);
+    background-color var(--duration-large) var(--ease-enter),
+    color var(--duration-large) var(--ease-enter);
 }
 
 /* Baseline focus visibility for anything that doesn't wire its own
@@ -282,5 +91,161 @@ body {
 @keyframes skeleton-sweep {
   to {
     transform: translateX(100%);
+  }
+}
+
+/* A blade-edge highlight: a thin crimson-to-gold line that draws in from the left. Used under
+   page titles and on the active nav item. Transform-only. */
+.blade-edge {
+  position: relative;
+}
+.blade-edge::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -0.35rem;
+  height: 2px;
+  width: 3.5rem;
+  border-radius: 999px;
+  background: var(--gradient-brand);
+  transform-origin: left;
+  animation: blade-draw var(--duration-large) var(--ease-enter) both;
+}
+@keyframes blade-draw {
+  from {
+    transform: scaleX(0);
+    opacity: 0;
+  }
+  to {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+}
+
+/* Slow ember drift for hero surfaces (landing, empty workspace). Opacity/transform only and
+   frozen under prefers-reduced-motion by the rule above. */
+.ember-field {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.ember-field > span {
+  position: absolute;
+  bottom: -1rem;
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--color-gold);
+  opacity: 0;
+  animation: ember-rise linear infinite;
+  will-change: transform, opacity;
+}
+@keyframes ember-rise {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.7;
+  }
+  100% {
+    transform: translate3d(var(--drift, 2rem), -70vh, 0) scale(0.3);
+    opacity: 0;
+  }
+}
+
+/* Lift-and-glow for interactive cards: the glow is a pseudo-element whose opacity changes,
+   the lift is a transform. */
+.lacquer-card {
+  position: relative;
+  transition: transform var(--duration-standard) var(--ease-enter);
+}
+.lacquer-card::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: var(--gradient-brand);
+  opacity: 0;
+  z-index: -1;
+  filter: blur(14px);
+  transition: opacity var(--duration-standard) var(--ease-enter);
+}
+.lacquer-card:hover,
+.lacquer-card:focus-within {
+  transform: translateY(-3px);
+}
+.lacquer-card:hover::before,
+.lacquer-card:focus-within::before {
+  opacity: 0.28;
+}
+
+/* ---- Architecture diagram ---- */
+/* A faint dash drifting along each solid edge shows which way it flows. It is decoration:
+   real activity is the bright packet, which only a trace event can launch. */
+.edge-flow {
+  stroke-dasharray: 3 26;
+  animation: edge-flow 2.8s linear infinite;
+  opacity: 0.5;
+}
+@keyframes edge-flow {
+  to {
+    stroke-dashoffset: -29;
+  }
+}
+
+/* A ring that expands off a node while its stage is running. Transform and opacity only. */
+.node-ripple {
+  animation: node-ripple 1.3s var(--ease-enter) infinite;
+  will-change: transform, opacity;
+}
+@keyframes node-ripple {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1.14, 1.3);
+    opacity: 0;
+  }
+}
+
+/* Two slow blurred glows behind the diagram. */
+.aurora {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.aurora > span {
+  position: absolute;
+  width: 46%;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  filter: blur(90px);
+  opacity: 0.16;
+  will-change: transform;
+}
+.aurora > span:first-child {
+  top: -18%;
+  left: -8%;
+  background: var(--color-accent);
+  animation: aurora-a 26s ease-in-out infinite alternate;
+}
+.aurora > span:last-child {
+  right: -10%;
+  bottom: -24%;
+  background: var(--color-live);
+  animation: aurora-b 32s ease-in-out infinite alternate;
+}
+@keyframes aurora-a {
+  to {
+    transform: translate3d(38%, 24%, 0) scale(1.2);
+  }
+}
+@keyframes aurora-b {
+  to {
+    transform: translate3d(-34%, -20%, 0) scale(1.15);
   }
 }

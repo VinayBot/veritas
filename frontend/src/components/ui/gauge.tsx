@@ -1,7 +1,7 @@
 import { motion, useMotionValue, useTransform, animate, useReducedMotion } from 'framer-motion'
 import { useEffect, useId, useMemo, useRef } from 'react'
-import { EASE_OUT } from '@/lib/motion'
-import { StateMessage, type ComponentStatus } from './state-message'
+import { EASE_ENTER } from '@/lib/motion'
+import { EmptyState, type ComponentStatus } from './empty-state'
 import { cn } from '@/lib/utils'
 
 interface GaugeProps {
@@ -63,7 +63,7 @@ export function Gauge({
     if (labelRef.current) labelRef.current.textContent = format(progress.get() * max)
     const controls = animate(progress, fraction, {
       duration: reduced ? 0 : 1,
-      ease: EASE_OUT,
+      ease: EASE_ENTER,
       onUpdate: (p) => {
         if (labelRef.current) labelRef.current.textContent = format(p * max)
       },
@@ -92,8 +92,8 @@ export function Gauge({
           className="flex items-center justify-center rounded-full border border-dashed border-border"
           style={{ width: size, height: size }}
         >
-          <StateMessage
-            status={status}
+          <EmptyState
+            tone={status}
             title={status === 'empty' ? 'No data' : 'Error'}
             description={status === 'empty' ? emptyDescription : errorDescription}
             className="gap-1 p-2"

@@ -91,7 +91,7 @@ function DrawerContent({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: reduced ? 0.001 : DURATION.base }}
+              transition={{ duration: reduced ? 0.001 : DURATION.standard }}
             />
           </DialogPrimitive.Overlay>
           <DialogPrimitive.Content asChild forceMount data-slot="drawer-content" {...props}>

@@ -1,7 +1,7 @@
 import { motion, useReducedMotion } from 'framer-motion'
 import { Info, TriangleAlert, X } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { DURATION, EASE_OUT, reducedTransition } from '@/lib/motion'
+import { DURATION, EASE_ENTER, reducedTransition } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 
 export type AlertVariant = 'warning' | 'danger' | 'info'
@@ -42,7 +42,7 @@ export function AlertBanner({
       initial={{ opacity: 0, y: -8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
-      transition={reducedTransition(!!reduced, { duration: DURATION.base, ease: EASE_OUT })}
+      transition={reducedTransition(!!reduced, { duration: DURATION.standard, ease: EASE_ENTER })}
       className={cn(
         'flex items-start gap-3 rounded-lg border px-4 py-3 text-sm',
         VARIANT_STYLES[variant],
