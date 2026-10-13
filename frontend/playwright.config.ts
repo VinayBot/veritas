@@ -17,6 +17,11 @@ export default defineConfig({
   timeout: 5 * 60 * 1000, // real local-LLM ingestion/chat turns can take minutes, not ms
   expect: { timeout: 15_000 },
   fullyParallel: false, // every test shares the one backend's SQLite DB and Ollama instance
+  // Adding the webkit project (SC-6) means two projects can now run concurrently even with
+  // fullyParallel:false, which only serializes within a project — two simultaneous real
+  // ingestions against the one shared backend crashed its embedder/reranker's Metal command
+  // buffer on this machine. workers:1 keeps every project strictly sequential too.
+  workers: 1,
   retries: 0,
   reporter: [['list']],
   use: {
@@ -27,7 +32,17 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    // Scoped to the scroll regression spec only (SC-6 requires chromium + webkit there) —
+    // every other spec stays chromium-only, so this doesn't double the full suite's runtime
+    // or its real-LLM load on the one shared Ollama instance.
+    {
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'] },
+      testMatch: /workspace-scroll\.spec\.ts/,
+    },
+  ],
   webServer: {
     command: `npm run dev -- --port ${port} --strictPort`,
     url: `http://localhost:${port}`,

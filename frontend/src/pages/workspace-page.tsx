@@ -145,6 +145,8 @@ export function WorkspacePage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevStatusRef = useRef<DocumentResponse['status'] | null>(null)
+  const atBottomRef = useRef(true)
+  const [atBottom, setAtBottom] = useState(true)
 
   const steps: StepperStep[] = useMemo(
     () =>
@@ -156,9 +158,29 @@ export function WorkspacePage() {
     [events, doc],
   )
 
+  // Auto-follows streamed tokens/new messages only while the user is already at (or very
+  // near) the bottom — otherwise a mid-scroll read gets yanked back down on every token. The
+  // "Jump to latest" chip (rendered below) is the escape hatch for the latter case (SC-2).
   useEffect(() => {
+    if (!atBottomRef.current) return
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages])
+
+  function handleChatScroll() {
+    const el = scrollRef.current
+    if (!el) return
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+    atBottomRef.current = nearBottom
+    setAtBottom(nearBottom)
+  }
+
+  function jumpToLatest() {
+    const el = scrollRef.current
+    if (!el) return
+    atBottomRef.current = true
+    setAtBottom(true)
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  }
 
   // Ticks once a second only while the job is actually in flight, driving both the elapsed-
   // time readout and the 20s "taking longer than expected" threshold below.
@@ -307,8 +329,8 @@ export function WorkspacePage() {
   }
 
   return (
-    <div className="flex h-screen gap-6 p-6">
-    <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6">
+    <div className="flex h-dvh gap-6 p-6">
+    <div className="mx-auto flex min-h-0 min-w-0 w-full max-w-5xl flex-1 flex-col gap-6">
       <header>
         <h1 className="font-display text-2xl font-semibold text-foreground">Workspace</h1>
         <p className="text-sm text-muted-foreground">
@@ -382,7 +404,13 @@ export function WorkspacePage() {
               </div>
             </CardHeader>
             <CardContent>
-              <Stepper steps={steps} status={doc ? 'success' : 'loading'} />
+              {/* 10 non-shrinking step circles have a real min-content width (~550px) that
+                  the stepper's own min-w-0 li's can't go below — scoping overflow to this one
+                  row (instead of letting it force the whole page wider) is what keeps the
+                  dashboard pane on-screen at narrow widths like 1024px (SC-5). */}
+              <div className="overflow-x-auto">
+                <Stepper steps={steps} status={doc ? 'success' : 'loading'} />
+              </div>
 
               {isInFlight && doc && (
                 <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -466,27 +494,49 @@ export function WorkspacePage() {
           </Card>
 
           <div className="flex min-h-0 flex-1 flex-col gap-3">
-            <div ref={scrollRef} className="flex-1 overflow-y-auto rounded-lg border border-border bg-surface p-4">
-              {messages.length === 0 && (
-                <p className="py-12 text-center text-sm text-muted-foreground">
-                  Ask something about this document.
-                </p>
-              )}
-              <div className="flex flex-col gap-4">
-                {messages.map((m, i) => (
-                  <MessageBubble
-                    key={i}
-                    message={m}
-                    expanded={expandedSteps === i}
-                    onToggleExpand={() => setExpandedSteps(expandedSteps === i ? null : i)}
-                  />
-                ))}
-                {sending && messages[messages.length - 1]?.content === '' && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="size-3.5 animate-spin" /> thinking...
-                  </div>
+            <div className="relative min-h-0 flex-1">
+              <div
+                ref={scrollRef}
+                onScroll={handleChatScroll}
+                className="h-full overflow-y-auto rounded-lg border border-border bg-surface p-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                data-testid="chat-scroll-pane"
+                data-lenis-prevent
+                tabIndex={0}
+                role="log"
+                aria-label="Chat messages"
+              >
+                {messages.length === 0 && (
+                  <p className="py-12 text-center text-sm text-muted-foreground">
+                    Ask something about this document.
+                  </p>
                 )}
+                <div className="flex flex-col gap-4">
+                  {messages.map((m, i) => (
+                    <MessageBubble
+                      key={i}
+                      message={m}
+                      expanded={expandedSteps === i}
+                      onToggleExpand={() => setExpandedSteps(expandedSteps === i ? null : i)}
+                    />
+                  ))}
+                  {sending && messages[messages.length - 1]?.content === '' && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="size-3.5 animate-spin" /> thinking...
+                    </div>
+                  )}
+                </div>
               </div>
+
+              {!atBottom && messages.length > 0 && (
+                <button
+                  type="button"
+                  onClick={jumpToLatest}
+                  data-testid="jump-to-latest"
+                  className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-surface-raised px-3 py-1.5 text-xs font-medium text-foreground shadow-md transition-colors hover:text-accent"
+                >
+                  <ChevronDown className="size-3.5" /> Jump to latest
+                </button>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center gap-2">

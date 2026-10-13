@@ -426,3 +426,66 @@ underlying concurrency issue has a real fix, run spec files separately
 (`npx playwright test tests/e2e/<file>.spec.ts`) and restart the backend between heavy batches,
 and treat updating the README's instructions and wiring up a real frontend test target as
 follow-ups in their own right, not assumed to already be handled elsewhere.
+
+**Fourth occurrence**, verifying the Workspace scroll fix below: a long single `npx playwright
+test` invocation covering `workspace-scroll.spec.ts` plus the three pre-existing spec files (15+
+real ingestions back to back) crashed the backend again — but this time while parsing an
+unrelated document in `ingestion.spec.ts`, i.e. nowhere near the scroll fix's own code paths,
+and `chat.spec.ts`'s unanswerable-question test separately showed the local LLM's own answer-
+phrasing non-determinism (a correct-but-differently-worded abstain, not the hardcoded `/don't
+have enough/i` regex) on the first retry after the crash-triggered restart — a second, unrelated
+pre-existing flake, not a regression either. Restarting both the backend and Ollama (the crash
+appears to able to leave Ollama's own GPU-backed inference degraded too, not just the Python
+process that triggered it — a 30s `litellm.Timeout` on every call until Ollama itself was
+restarted) and re-running each spec file separately confirmed everything green. Logged here
+rather than re-litigated: this is the same infrastructure issue above, not evidence against the
+scroll fix, and running large multi-spec e2e batches on this machine should still be expected to
+need a mid-run restart.
+
+## Incident: two-finger trackpad scroll was dead in Workspace's chat and dashboard panes
+
+**Symptom.** Neither the chat message list nor the document-intelligence (dashboard) panel in
+Workspace responded to a two-finger trackpad scroll, mouse wheel, or touch drag. Keyboard scroll
+(arrows/PageUp/PageDown) didn't work either. The composer and the rest of the page were fine —
+scrolling just did nothing inside either pane.
+
+### Root cause
+
+`src/lib/smooth-scroll.tsx` wraps the entire app in `<ReactLenis root>` (a virtual smooth-scroll
+library) with no exclusions anywhere. Lenis's own wheel/touch handler walks the composed event
+path and only lets the browser's native scroll run on an element if it (or an ancestor) carries
+`data-lenis-prevent` (`node.hasAttribute('data-lenis-prevent')`,
+`node_modules/lenis/dist/lenis.mjs:609`) — confirmed by grepping the whole `src/` tree for that
+attribute: zero hits. So every wheel/touch event over either pane was captured by Lenis first,
+which tried to smooth-scroll the page root — which had nothing left to scroll inside the
+`h-screen` layout, since the two panes (not the page) are where the actual overflow lives. The
+panes' own `overflow-y: auto` never got a chance to act on the event at all.
+
+Confirmed directly, not just by code reading: running `page.mouse.wheel` (small, trackpad-sized
+deltas) over the pre-fix chat pane in a real browser left its `scrollTop` at `0`.
+
+A second, independent issue surfaced only once seeding real overflow at narrow viewport widths
+(1024×600): the ingestion Stepper's 10 non-shrinking step circles have an unavoidable
+min-content width (~556px) that, stacked against the fixed 240px nav rail and the dashboard
+panel's fixed 400px width, didn't fit — pushing the dashboard panel off the right edge of the
+viewport entirely (confirmed via each element's real `getBoundingClientRect()`). Pre-existing,
+unrelated to Lenis, just never exercised at exactly that width before.
+
+### The fix
+
+**1.** `data-lenis-prevent` + `tabIndex={0}` (native keyboard scrollability) on both panes'
+actual scroll containers: the chat pane (`workspace-page.tsx`, now `data-testid="chat-scroll-
+pane"`) and `document-intelligence-panel.tsx`'s root. **2.** The page's outer `h-screen` →
+`h-dvh` (correctness on mobile viewports with a dynamic browser toolbar). **3.** `min-w-0` on
+the chat column plus `overflow-x-auto` scoped to just the Stepper's row, so a width floor that
+can't shrink any further scrolls inside its own card instead of forcing the whole page wider.
+**4.** Chat auto-follow (`scrollRef`'s effect) now only runs while the user is already within
+48px of the bottom (tracked via a scroll-position ref, since the effect itself can't read live
+scroll state); otherwise a "Jump to latest" chip appears over the pane.
+
+**Verified**: `frontend/tests/e2e/workspace-scroll.spec.ts` (chromium + webkit, SC-6) — wheel
+(fractional, trackpad-style) and keyboard scroll on both panes, independence between the two,
+composer staying pinned, the Jump-to-latest chip, and three additional viewport sizes (1280×720,
+1024×600, 390×844 mobile, where the dashboard panel's existing `lg:` breakpoint intentionally
+hides it). Confirmed failing against the pre-fix commit (wheel left `scrollTop` at `0`) and
+passing after.

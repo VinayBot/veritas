@@ -173,8 +173,12 @@ export function DocumentIntelligencePanel({
       initial={{ opacity: 0, x: 24 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-      className="flex h-full w-full flex-col gap-5 overflow-y-auto rounded-lg border border-border bg-surface p-5"
+      className="flex h-full w-full flex-col gap-5 overflow-y-auto rounded-lg border border-border bg-surface p-5 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       data-testid="document-intelligence-panel"
+      data-lenis-prevent
+      tabIndex={0}
+      role="region"
+      aria-label="Document intelligence panel"
     >
       <RingHero datasets={ringDatasets} />
       <PipelineFacts doc={doc} mode={mode} />
