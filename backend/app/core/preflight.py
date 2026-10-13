@@ -189,16 +189,30 @@ async def run_preflight() -> PreflightReport:
     at all (see docs/TROUBLESHOOTING.md on why "fails loud but doesn't boot" would be worse
     than "boots, reports what's wrong")."""
     global _last_report
-    results = await asyncio.gather(
-        timed_check("embedder", warm_embedder),
-        timed_check("pii_detector", _warm_pii_detector),
-        timed_check("docling_parser", _warm_docling),
-        timed_check("reranker", _warm_reranker),
-        timed_check("ollama", check_ollama),
-        timed_check("ollama_models", warm_ollama_models),
-        timed_check("vector_store", check_vector_store_write),
+    # The embedder, Docling and reranker warm-ups all load/run PyTorch models on the GPU. On
+    # Apple Silicon (MPS) concurrent command-buffer submission from different threads aborts the
+    # whole process ("failed assertion _status < MTLCommandBufferStatusCommitted"), so these
+    # three are warmed one at a time. The remaining checks touch no GPU and still run
+    # concurrently alongside them.
+    gpu_bound = [
+        ("embedder", warm_embedder),
+        ("docling_parser", _warm_docling),
+        ("reranker", _warm_reranker),
+    ]
+
+    async def run_gpu_checks_serially() -> list[CheckResult]:
+        return [await timed_check(name, fn) for name, fn in gpu_bound]
+
+    gpu_results, other_results = await asyncio.gather(
+        run_gpu_checks_serially(),
+        asyncio.gather(
+            timed_check("pii_detector", _warm_pii_detector),
+            timed_check("ollama", check_ollama),
+            timed_check("ollama_models", warm_ollama_models),
+            timed_check("vector_store", check_vector_store_write),
+        ),
     )
-    report = PreflightReport(checks=list(results), ran_at=time.time())
+    report = PreflightReport(checks=[*gpu_results, *other_results], ran_at=time.time())
     _last_report = report
     for check in report.checks:
         level = logging.INFO if check.ok else logging.WARNING
