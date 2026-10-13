@@ -184,6 +184,37 @@
   --color-accent-soft: #6d28d9;
 }
 
+/* Scoped tokens for the Architecture and Evaluation surfaces (G7): these two surfaces are
+   always dark in BOTH global themes, so they get their own token namespace instead of
+   reading --color-background/--color-surface/etc., which flip under :root.light. Applied to
+   a wrapper element (SystemDesignView's root, the Evaluation page's root), never to :root. */
+.theme-arch {
+  --arch-canvas: #000000;
+  --arch-surface: #13112a;
+  --arch-surface-raised: #0d0c1a;
+  --arch-border: rgba(255, 255, 255, 0.15);
+  --arch-border-strong: rgba(255, 255, 255, 0.3);
+  --arch-text: #ffffff;
+  --arch-text-muted: rgba(255, 255, 255, 0.6);
+  --arch-text-faint: rgba(255, 255, 255, 0.4);
+}
+
+.theme-eval {
+  --ev-bg-from: #23204f;
+  --ev-bg-to: #181640;
+  --ev-border: rgba(140, 130, 255, 0.25);
+  --ev-border-strong: rgba(140, 130, 255, 0.5);
+  --ev-text: #ffffff;
+  --ev-value: #a9a3ff;
+  --ev-muted: rgba(255, 255, 255, 0.55);
+  --ev-track: #2a2760;
+  --ev-fill: #6c63ff;
+  --ev-high: #4ade80;
+  --ev-high-bg: rgba(34, 197, 94, 0.15);
+  --ev-medium: #f5a524;
+  --ev-medium-bg: rgba(245, 165, 36, 0.15);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

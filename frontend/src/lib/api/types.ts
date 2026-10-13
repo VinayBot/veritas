@@ -136,6 +136,30 @@ export interface GraphResponse {
   linked_entities: GraphNode[] | null
 }
 
+// ---- Architecture ----
+
+export interface ArchitectureNode {
+  id: string
+  label: string
+  module_path: string
+  group: string | null
+  stage: number | null
+  planned: boolean
+}
+
+export interface ArchitectureEdge {
+  source: string
+  target: string
+  bidirectional: boolean
+  label: string | null
+  stage: number | null
+}
+
+export interface ArchitectureTopologyResponse {
+  nodes: ArchitectureNode[]
+  edges: ArchitectureEdge[]
+}
+
 // ---- Chat ----
 
 export type ChatMode = 'agentic' | 'hybrid' | 'graph'

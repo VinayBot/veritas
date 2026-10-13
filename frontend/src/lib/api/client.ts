@@ -1,6 +1,7 @@
 import {
   ApiError,
   type AdvisorResponse,
+  type ArchitectureTopologyResponse,
   type AuditListResponse,
   type BenchmarkRunResponse,
   type ChatMode,
@@ -90,6 +91,12 @@ export function getGraph(documentId: string, query?: string, hops = 2): Promise<
   if (query) qs.set('query', query)
   qs.set('hops', String(hops))
   return request<GraphResponse>(`/graph/${documentId}?${qs.toString()}`)
+}
+
+// ---- Architecture ----
+
+export function getArchitectureTopology(): Promise<ArchitectureTopologyResponse> {
+  return request<ArchitectureTopologyResponse>('/architecture/topology')
 }
 
 // ---- Reports / Council ----

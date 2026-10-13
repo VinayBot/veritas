@@ -12,6 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.agents.runs import reconcile_interrupted_runs
+from app.api.routes.architecture import router as architecture_router
 from app.api.routes.audit import router as audit_router
 from app.api.routes.chat import router as chat_router
 from app.api.routes.council import router as council_router
@@ -94,6 +95,7 @@ async def add_trace_id(request: Request, call_next):
 
 
 app.include_router(health_router, prefix="/api/v1")
+app.include_router(architecture_router, prefix="/api/v1")
 app.include_router(documents_router, prefix="/api/v1")
 app.include_router(pii_router, prefix="/api/v1")
 app.include_router(retrieval_router, prefix="/api/v1")
