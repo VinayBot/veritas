@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Activity, CircleCheck, CircleX, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { StatusDot, STATUS_LABEL, type HealthStatus } from '@/components/ui/status-dot'
+import { StatusDot } from '@/components/ui/status-dot'
+import { STATUS_LABEL, type HealthStatus } from '@/components/ui/status-label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { runSelfCheck } from '@/lib/api/client'
 import type { SelfCheckResponse, Subsystem } from '@/lib/api/types'
@@ -125,9 +126,13 @@ export function HealthStrip({
     }
   }
 
-  // Lets the command palette trigger the same action.
+  // Lets the command palette trigger the same action, always with the current handler.
+  const selfCheckRef = useRef(handleSelfCheck)
+  useLayoutEffect(() => {
+    selfCheckRef.current = handleSelfCheck
+  })
   useEffect(() => {
-    const handler = () => void handleSelfCheck()
+    const handler = () => void selfCheckRef.current()
     window.addEventListener('veritas:self-check', handler)
     return () => window.removeEventListener('veritas:self-check', handler)
   }, [])

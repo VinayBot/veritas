@@ -1,3 +1,4 @@
+import type { ChatModel } from '@/lib/api/types'
 /** Formatting helpers shared by every page, so the same value never renders two ways. */
 
 export function pct(n: number | null | undefined, digits = 1): string | undefined {
@@ -59,4 +60,10 @@ export function relativeTime(iso: string | number | null | undefined): string | 
 export function modelName(id: string | null | undefined): string {
   if (!id) return '—'
   return id.replace(/^ollama\//, '')
+}
+
+/** Size, quantization and memory of a local model, or its provider for a cloud one. */
+export function modelMeta(model: ChatModel): string {
+  if (model.cloud) return `${model.provider} · cloud`
+  return [model.parameter_size, model.quantization, bytes(model.vram_bytes ?? model.disk_bytes)].filter(Boolean).join(' · ')
 }

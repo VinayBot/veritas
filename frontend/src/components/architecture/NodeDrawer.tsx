@@ -7,7 +7,8 @@ import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } f
 import { EmptyState, ErrorState } from '@/components/ui/empty-state'
 import { LoadingState } from '@/components/ui/loading-state'
 import { MetricTip } from '@/components/ui/metric-tip'
-import { StatusDot, STATUS_LABEL } from '@/components/ui/status-dot'
+import { StatusDot } from '@/components/ui/status-dot'
+import { STATUS_LABEL } from '@/components/ui/status-label'
 import { getAudit, getNodeEvents } from '@/lib/api/client'
 import type { ArchitectureNode, AuditEntry, TraceEvent } from '@/lib/api/types'
 import { ms, relativeTime } from '@/lib/format'
@@ -49,11 +50,18 @@ function ModuleDetail({ node, statsSince }: { node: ArchitectureNode; statsSince
   const [eventsError, setEventsError] = useState<unknown>(null)
   const [audit, setAudit] = useState<AuditEntry[] | null>(null)
 
-  useEffect(() => {
-    let cancelled = false
+  // Another node, or new activity on this one: drop what was shown before fetching again.
+  const detailKey = `${node.id}:${node.invocation_count}`
+  const [shownFor, setShownFor] = useState(detailKey)
+  if (shownFor !== detailKey) {
+    setShownFor(detailKey)
     setEvents(null)
     setEventsError(null)
     setAudit(null)
+  }
+
+  useEffect(() => {
+    let cancelled = false
     getNodeEvents(node.id)
       .then(async (data) => {
         if (cancelled) return

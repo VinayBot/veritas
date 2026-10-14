@@ -11,7 +11,7 @@ import { LoadingState } from '@/components/ui/loading-state'
 import { Segmented } from '@/components/ui/segmented'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { InlineBar } from '@/components/ui/progress-bar'
-import { useCommands, type CommandPaletteItem } from '@/components/ui/command-palette'
+import { useCommands, type CommandPaletteItem } from '@/components/ui/command-palette-context'
 import { getAudit, getAuditSummary, runRedteam } from '@/lib/api/client'
 import type { AuditEntry, AuditRuleSummary, AuditSummaryResponse, RedTeamRunResponse } from '@/lib/api/types'
 import { compact, dateTime, pct, relativeTime } from '@/lib/format'
@@ -54,8 +54,15 @@ export function SafetySection() {
       .catch(setSummaryError)
   }, [])
 
-  const loadEntries = useCallback(() => {
+  // A different layer filter makes the rows shown wrong: clear them as it changes. A refresh
+  // with the same filter keeps them until the new ones arrive.
+  const [entriesFor, setEntriesFor] = useState(layer)
+  if (entriesFor !== layer) {
+    setEntriesFor(layer)
     setEntries(null)
+  }
+
+  const loadEntries = useCallback(() => {
     getAudit({ layer: layer === 'all' ? undefined : layer, real_traffic_only: true, limit: 200 })
       .then((data) => {
         setEntries(data.entries)

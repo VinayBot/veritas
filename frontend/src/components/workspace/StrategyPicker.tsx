@@ -20,7 +20,7 @@ const COST_LABEL: Record<Strategy['relative_cost'], string> = {
   very_high: 'very high cost',
 }
 
-export function latencyLabel(s: Strategy): { text: string; verified: boolean } {
+function latencyLabel(s: Strategy): { text: string; verified: boolean } {
   return s.measured_latency_ms !== null
     ? { text: `${ms(s.measured_latency_ms)} measured over ${s.measured_runs} answers`, verified: true }
     : { text: `~${ms(s.typical_latency_ms)} estimated`, verified: false }

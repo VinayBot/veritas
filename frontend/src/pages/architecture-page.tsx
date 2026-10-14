@@ -7,7 +7,7 @@ import { Segmented } from '@/components/ui/segmented'
 import { ErrorState } from '@/components/ui/empty-state'
 import { LoadingState } from '@/components/ui/loading-state'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { useCommands, type CommandPaletteItem } from '@/components/ui/command-palette'
+import { useCommands, type CommandPaletteItem } from '@/components/ui/command-palette-context'
 import { ArchitectureCanvas } from '@/components/architecture/ArchitectureCanvas'
 import { HealthStrip } from '@/components/architecture/HealthStrip'
 import { NodeDrawer } from '@/components/architecture/NodeDrawer'
@@ -42,6 +42,9 @@ export function ArchitecturePage() {
   const [replayEvents, setReplayEvents] = useState<TraceEvent[] | null>(null)
   const reduced = useReducedMotion()
   const sceneRef = useRef<Scene | null>(null)
+  // The scene as rendered, for render-time reads (the selected node's summary); the ref is
+  // for handlers and effects that drive it imperatively.
+  const [scene, setScene] = useState<Scene | null>(null)
   const [sceneReady, setSceneReady] = useState(false)
   const seenRef = useRef<Set<string>>(new Set())
   const [tour, setTour] = useState<{ active: string[]; done: string[] } | null>(null)
@@ -160,9 +163,12 @@ export function ArchitecturePage() {
 
   // A new trace starting re-enables follow, as the brief asks; panning cancels it again.
   const firstSeq = shownEvents[0] ? eventKey(shownEvents[0]) : null
-  useEffect(() => {
+  const traceKey = `${firstSeq}|${view}`
+  const [followFor, setFollowFor] = useState(traceKey)
+  if (followFor !== traceKey) {
+    setFollowFor(traceKey)
     if (view === 'live') setFollow(true)
-  }, [firstSeq, view])
+  }
 
   const replayTimers = useRef<number[]>([])
   const stopReplay = useCallback(() => {
@@ -242,7 +248,7 @@ export function ArchitecturePage() {
     tourTimers.current.push(window.setTimeout(stopTour, levels.length * STEP_MS + 1600))
   }
 
-  const selectedScene = selectedSceneId ? sceneRef.current?.nodes.find((n) => n.id === selectedSceneId) : undefined
+  const selectedScene = selectedSceneId ? scene?.nodes.find((n) => n.id === selectedSceneId) : undefined
   const selectedNode = selectedSceneId && graph ? (graph.nodes.find((n) => n.id === selectedSceneId) ?? null) : null
   const selectedSummary: StageSummary | null = selectedScene?.summary ?? null
 
@@ -369,8 +375,9 @@ export function ArchitecturePage() {
               focusNodeId={view === 'live' ? focusNodeId : null}
               follow={follow}
               onUserMove={() => setFollow(false)}
-              onScene={(scene) => {
-                sceneRef.current = scene
+              onScene={(next) => {
+                sceneRef.current = next
+                setScene(next)
                 setSceneReady(true)
               }}
             />

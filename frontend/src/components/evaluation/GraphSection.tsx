@@ -72,9 +72,8 @@ export function GraphSection({ documentId }: { documentId: string }) {
     }
   }
 
-  const load = useCallback(
+  const fetchGraph = useCallback(
     (query?: string) => {
-      setNodes(null)
       getGraph(documentId, query, 2)
         .then((data) => {
           setNodes(data.nodes)
@@ -85,17 +84,32 @@ export function GraphSection({ documentId }: { documentId: string }) {
     },
     [documentId],
   )
+  // A filter or a retry clears the graph first, so the spinner shows while it loads.
+  const load = useCallback(
+    (query?: string) => {
+      setNodes(null)
+      fetchGraph(query)
+    },
+    [fetchGraph],
+  )
 
-  // Graph extraction is a background phase: re-read when it finishes.
-  useEffect(() => {
+  // Graph extraction is a background phase: re-read when it finishes. A different document or
+  // a rebuilt graph also clears the filter and the last answer, while rendering.
+  const graphKey = `${documentId}|${doc?.enrichment_status}|${reloadKey}`
+  const [graphFor, setGraphFor] = useState(graphKey)
+  if (graphFor !== graphKey) {
+    setGraphFor(graphKey)
     setActiveFilter(undefined)
     setAnswer(null)
     setSequence(undefined)
-    load()
+    setNodes(null)
+  }
+  useEffect(() => {
+    fetchGraph()
     getGraphStats(documentId)
       .then(setStats)
       .catch(() => setStats(null))
-  }, [load, documentId, doc?.enrichment_status, reloadKey])
+  }, [fetchGraph, documentId, doc?.enrichment_status, reloadKey])
 
   const selected = useMemo(() => nodes?.find((n) => n.id === selectedId) ?? null, [nodes, selectedId])
   const graphStrategy = strategies.data?.strategies.find((s) => s.id === 'graph_rag')

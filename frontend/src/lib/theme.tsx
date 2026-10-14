@@ -1,14 +1,5 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from 'react'
-
-export type Theme = 'dark' | 'light'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { ThemeContext, type Theme } from './theme-context'
 
 /** Keep in sync with the inline bootstrap script in index.html. */
 export const THEME_STORAGE_KEY = 'veritas:theme'
@@ -20,14 +11,6 @@ function writeStoredTheme(theme: Theme) {
     // Same as above — persistence is best-effort.
   }
 }
-
-interface ThemeContextValue {
-  theme: Theme
-  setTheme: (theme: Theme) => void
-  toggleTheme: () => void
-}
-
-const ThemeContext = createContext<ThemeContextValue | null>(null)
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   // The inline script in index.html already applied (or didn't apply) the
@@ -64,12 +47,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const value = useMemo(() => ({ theme, setTheme, toggleTheme }), [theme, setTheme, toggleTheme])
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
-}
-
-export function useTheme(): ThemeContextValue {
-  const ctx = useContext(ThemeContext)
-  if (!ctx) throw new Error('useTheme must be used within a <ThemeProvider>')
-  return ctx
 }
 
 // NOTE: index.html has a tiny inline <script> that duplicates the read half

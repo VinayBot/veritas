@@ -1,6 +1,6 @@
 import { Moon, Sun } from 'lucide-react'
 import { motion, useReducedMotion } from 'framer-motion'
-import { useTheme } from '@/lib/theme'
+import { useTheme } from '@/lib/theme-context'
 import { SPRING, reducedTransition } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 

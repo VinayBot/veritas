@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { segmentAnswer } from './AnswerText'
+import { segmentAnswer } from './answer-segments'
 
 const grounding = (flags: [string, boolean][]) => ({
   score: flags.filter(([, ok]) => ok).length / flags.length,

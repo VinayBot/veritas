@@ -10,7 +10,7 @@ import { diffWords } from '@/lib/diff'
 import type { GlossaryTerm } from '@/lib/glossary'
 import { compact, ms, score } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { withMaskedValues } from '@/components/workspace/AnswerText'
+import { withMaskedValues } from '@/components/workspace/answer-segments'
 
 const METRICS: { key: string; label: string; term: GlossaryTerm; get: (r: ConfigResultOut) => number | null | undefined }[] = [
   { key: 'faithfulness', label: 'Faithfulness', term: 'faithfulness', get: (r) => r.faithfulness },

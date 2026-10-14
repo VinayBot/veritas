@@ -5,7 +5,7 @@ import { Command as CommandIcon, FlaskConical, MessageSquare, Workflow, type Luc
 import { ThemeToggle } from '@/components/ui/theme-toggle'
 import { Badge } from '@/components/ui/badge'
 import { AlertBanner } from '@/components/ui/alert-banner'
-import { useCommandPalette, useCommands, type CommandPaletteItem } from '@/components/ui/command-palette'
+import { useCommandPalette, useCommands, type CommandPaletteItem } from '@/components/ui/command-palette-context'
 import { DocumentSwitcher } from './document-switcher'
 import { usePolling } from '@/hooks/usePolling'
 import { cn } from '@/lib/utils'
@@ -14,7 +14,7 @@ import { getDocument, getHealth } from '@/lib/api/client'
 import { ApiError, type HealthResponse } from '@/lib/api/types'
 import { useAppStore } from '@/store/app-store'
 
-export const NAV_ITEMS: { to: string; label: string; icon: LucideIcon; end: boolean }[] = [
+const NAV_ITEMS: { to: string; label: string; icon: LucideIcon; end: boolean }[] = [
   { to: '/app', label: 'Workspace', icon: MessageSquare, end: true },
   { to: '/app/architecture', label: 'Architecture', icon: Workflow, end: false },
   { to: '/app/evaluation', label: 'Evaluation', icon: FlaskConical, end: false },
@@ -47,9 +47,12 @@ function PreflightBanner({ health }: { health: HealthResponse | null }) {
   const degraded = preflight && preflight.status === 'degraded' ? preflight : null
   const failingChecksKey = degraded?.checks.map((c) => c.name + c.ok).join(',') ?? ''
 
-  useEffect(() => {
+  // A different set of failing checks shows the banner again, even if the last one was dismissed.
+  const [dismissedFor, setDismissedFor] = useState(failingChecksKey)
+  if (dismissedFor !== failingChecksKey) {
+    setDismissedFor(failingChecksKey)
     setDismissed(false)
-  }, [failingChecksKey])
+  }
 
   return (
     <AnimatePresence>

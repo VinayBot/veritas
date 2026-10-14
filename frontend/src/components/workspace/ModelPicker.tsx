@@ -7,7 +7,7 @@ import { ErrorState } from '@/components/ui/empty-state'
 import { LoadingState } from '@/components/ui/loading-state'
 import { useModelsStore } from '@/store/models-store'
 import type { ChatModel } from '@/lib/api/types'
-import { bytes, modelName } from '@/lib/format'
+import { modelMeta, modelName } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 export function OllamaDown({ error, fix }: { error: string | null; fix: string | null }) {
@@ -21,11 +21,6 @@ export function OllamaDown({ error, fix }: { error: string | null; fix: string |
       {error && <code className="mt-2 block font-mono text-[10px] break-words text-muted-foreground">{error}</code>}
     </div>
   )
-}
-
-export function modelMeta(model: ChatModel): string {
-  if (model.cloud) return `${model.provider} · cloud`
-  return [model.parameter_size, model.quantization, bytes(model.vram_bytes ?? model.disk_bytes)].filter(Boolean).join(' · ')
 }
 
 /** Switch the model that writes answers, from the models actually installed. */

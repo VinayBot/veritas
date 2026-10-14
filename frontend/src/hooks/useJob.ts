@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { JOB_STREAM_URL, cancelJob, getJob, readSse, withAuth } from '@/lib/api/client'
 import type { Job, JobStatus } from '@/lib/api/types'
 
@@ -21,26 +21,31 @@ const TERMINAL: JobStatus[] = ['done', 'failed', 'cancelled']
  * view never sits on a stale "running".
  */
 export function useJob(jobId: string | null, onDone?: (job: Job) => void): JobView {
-  const [status, setStatus] = useState<JobView['status']>('idle')
+  const [status, setStatus] = useState<JobView['status']>(jobId ? 'queued' : 'idle')
   const [progress, setProgress] = useState(0)
-  const [message, setMessage] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(jobId ? 'Queued' : null)
   const [result, setResult] = useState<Record<string, unknown> | null>(null)
   const [error, setError] = useState<string | null>(null)
   const onDoneRef = useRef(onDone)
-  onDoneRef.current = onDone
+  useLayoutEffect(() => {
+    onDoneRef.current = onDone
+  })
 
-  useEffect(() => {
-    if (!jobId) {
-      setStatus('idle')
-      return
-    }
-    let cancelled = false
-    const controller = new AbortController()
-    setStatus('queued')
+  // A different job (or none) starts from a clean view: reset while rendering.
+  const [trackedJob, setTrackedJob] = useState(jobId)
+  if (trackedJob !== jobId) {
+    setTrackedJob(jobId)
+    setStatus(jobId ? 'queued' : 'idle')
     setProgress(0)
-    setMessage('Queued')
+    setMessage(jobId ? 'Queued' : null)
     setResult(null)
     setError(null)
+  }
+
+  useEffect(() => {
+    if (!jobId) return
+    let cancelled = false
+    const controller = new AbortController()
 
     const settle = async () => {
       try {

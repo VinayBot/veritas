@@ -32,11 +32,19 @@ export function DocumentSwitcher({ open, onOpenChange }: { open: boolean; onOpen
   const [pendingDelete, setPendingDelete] = useState<DocumentSummary | null>(null)
   const [deleting, setDeleting] = useState(false)
 
+  // Each opening shows a fresh list: clear the last one as the dialog opens, then fetch.
+  const [wasOpen, setWasOpen] = useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) {
+      setDocs(null)
+      setError(null)
+    }
+  }
+
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    setDocs(null)
-    setError(null)
     listDocuments({ limit: 200 })
       .then((data) => {
         if (cancelled) return

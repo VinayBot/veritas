@@ -12,8 +12,9 @@ import { InlineBar, ProgressBar } from '@/components/ui/progress-bar'
 import { MetricTip } from '@/components/ui/metric-tip'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { CountUp } from '@/components/ui/count-up'
-import { useCommands, type CommandPaletteItem } from '@/components/ui/command-palette'
-import { ChartTable, EChart, axisStyle, baseOption, useChartTheme } from '@/components/charts/EChart'
+import { useCommands, type CommandPaletteItem } from '@/components/ui/command-palette-context'
+import { ChartTable, EChart } from '@/components/charts/EChart'
+import { axisStyle, baseOption, useChartTheme } from '@/components/charts/chart-theme'
 import { CompareDialog } from '@/components/compare/CompareDialog'
 import { useJob } from '@/hooks/useJob'
 import { useStrategies } from '@/hooks/useStrategies'
@@ -114,9 +115,14 @@ export function QualitySection({ documentId }: { documentId: string }) {
       .catch(() => setDatasets([]))
   }, [documentId])
 
-  useEffect(() => {
+  // Another document: clear its runs and selection while rendering, then load.
+  const [runsFor, setRunsFor] = useState(documentId)
+  if (runsFor !== documentId) {
+    setRunsFor(documentId)
     setRuns(null)
     setSelectedId(null)
+  }
+  useEffect(() => {
     load()
   }, [load])
 
@@ -142,9 +148,14 @@ export function QualitySection({ documentId }: { documentId: string }) {
   )
   const previous = sameSet.length >= 2 ? sameSet[sameSet.length - 2] : undefined
 
-  useEffect(() => {
+  const selectedKey = selected?.id ?? null
+  const [detailFor, setDetailFor] = useState(selectedKey)
+  if (detailFor !== selectedKey) {
+    setDetailFor(selectedKey)
     setDetail(null)
     setOpenStrategy(null)
+  }
+  useEffect(() => {
     if (!selected) return
     let cancelled = false
     getBenchmark(selected.id)
@@ -682,9 +693,13 @@ function ChunkingAdvisor({ documentId }: { documentId: string }) {
   const [advisor, setAdvisor] = useState<AdvisorResponse | null | undefined>(undefined)
   const [busy, setBusy] = useState<'run' | 'accept' | 'ignore' | null>(null)
 
+  const [advisorFor, setAdvisorFor] = useState(documentId)
+  if (advisorFor !== documentId) {
+    setAdvisorFor(documentId)
+    setAdvisor(undefined)
+  }
   useEffect(() => {
     let cancelled = false
-    setAdvisor(undefined)
     getAdvisor(documentId)
       .then((data) => !cancelled && setAdvisor(data))
       .catch(() => !cancelled && setAdvisor(null))

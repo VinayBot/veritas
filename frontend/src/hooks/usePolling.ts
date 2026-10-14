@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 interface PollingState<T> {
   data: T | null
@@ -24,15 +24,21 @@ export function usePolling<T>(
   const [loading, setLoading] = useState(enabled)
   const [nonce, setNonce] = useState(0)
   const fetcherRef = useRef(fetcher)
-  fetcherRef.current = fetcher
+  useLayoutEffect(() => {
+    fetcherRef.current = fetcher
+  })
 
   const refresh = useCallback(() => setNonce((n) => n + 1), [])
 
+  // Turning polling on starts a load; while it is off nothing loads (derived below).
+  const [wasEnabled, setWasEnabled] = useState(enabled)
+  if (wasEnabled !== enabled) {
+    setWasEnabled(enabled)
+    if (enabled) setLoading(true)
+  }
+
   useEffect(() => {
-    if (!enabled) {
-      setLoading(false)
-      return
-    }
+    if (!enabled) return
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | undefined
     let failures = 0
@@ -68,5 +74,5 @@ export function usePolling<T>(
     }
   }, [enabled, intervalMs, maxIntervalMs, nonce])
 
-  return { data, error, updatedAt, loading, refresh }
+  return { data, error, updatedAt, loading: enabled && loading, refresh }
 }

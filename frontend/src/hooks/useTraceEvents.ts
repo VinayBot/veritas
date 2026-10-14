@@ -29,21 +29,17 @@ export function useTraceEvents(
   const [events, setEvents] = useState<TraceEvent[]>([])
   const [socket, setSocket] = useState<SocketState>('idle')
   const sessionIdRef = useRef(sessionId)
-
-  useEffect(() => {
+  // A new session starts with no events: reset while rendering, not in an effect, so the old
+  // session's events are never drawn for the new one (React's "adjust state on prop change").
+  const [eventsFor, setEventsFor] = useState(sessionId)
+  if (eventsFor !== sessionId) {
+    setEventsFor(sessionId)
     setEvents([])
-  }, [sessionId])
+  }
 
   useEffect(() => {
     sessionIdRef.current = sessionId
-    if (!sessionId) {
-      setSocket('idle')
-      return
-    }
-    if (!enabled) {
-      setSocket('closed')
-      return
-    }
+    if (!sessionId || !enabled) return
 
     let intentionallyClosed = false
     let ws: WebSocket | null = null
@@ -91,5 +87,7 @@ export function useTraceEvents(
     }
   }, [sessionId, enabled])
 
-  return { events, connected: socket === 'open', socket }
+  // Without a session, or while disabled, there is no socket: derived, not stored.
+  const shown: SocketState = !sessionId ? 'idle' : !enabled ? 'closed' : socket
+  return { events, connected: shown === 'open', socket: shown }
 }
