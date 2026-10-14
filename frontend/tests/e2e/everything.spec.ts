@@ -122,23 +122,31 @@ test('Workspace: a strategy that needs an index offers to build it, then answers
   await expect(answer).toContainText(/three/i)
 })
 
-test('Workspace: the recommendation explains itself and measures its improvement', async ({ page }) => {
-  await openSample(page)
+test('Workspace: the recommendation explains itself and can be re-measured', async ({ page }) => {
+  // Graph reading and the strategy measurement are real model work in the background.
+  test.setTimeout(10 * 60_000)
+  const id = await openSample(page)
   const card = page.getByTestId('recommendation-card')
   await expect(card).toBeVisible({ timeout: 60_000 })
+  await expect(card).toHaveAttribute('data-basis', 'measured', { timeout: 420_000 })
   await card.getByRole('button', { name: 'How was this decided?' }).click()
   await expect(card.getByTestId('recommendation-details')).toContainText('Rules checked')
+  await expect(card.getByTestId('recommendation-details')).toContainText(/Measured on \d+ question/)
 
-  if (await card.getByTestId('use-recommended').isVisible()) await card.getByTestId('use-recommended').click()
-  await expect(card.getByTestId('recommendation-in-use')).toBeVisible({ timeout: 180_000 })
-  await card.getByTestId('measure-improvement').click()
-  await expect(card.getByTestId('improvement-progress')).toBeVisible({ timeout: 30_000 })
-  // Either measured rows, or the honest statement that nothing comparable came out.
-  await expect(card.getByTestId('improvement-results').or(card.getByText('produced no comparable numbers'))).toBeVisible({ timeout: 240_000 })
-  if (await card.getByTestId('improvement-results').isVisible()) {
-    await expect(card.getByTestId('improvement-results').locator('li').first()).toContainText(/\d/)
-    await expect(card).toContainText(/Measured .* on \d+ questions/)
-  }
+  // Re-measure runs again and keeps the highest scorer in use.
+  await card.getByTestId('measure-now').click()
+  await expect(card.getByTestId('measuring')).toBeVisible({ timeout: 30_000 })
+  await expect(card.getByTestId('measuring')).toBeHidden({ timeout: 300_000 })
+  const rec = await (await page.request.get(`${API}/documents/${id}/recommendation`)).json()
+  expect(rec.recommended).toBe(rec.measured.ranking[0].strategy)
+  await expect(card.getByTestId('recommended-score')).toHaveText(`score ${rec.measured.ranking[0].score.toFixed(2)}`)
+
+  // Picking another strategy for this document from the comparison sticks.
+  const second = rec.measured.ranking[1]
+  await page.getByTestId('strategy-picker').click()
+  await page.getByRole('button', { name: `Use ${second.display_name} for this document` }).click()
+  await expect.poll(async () => (await (await page.request.get(`${API}/documents/${id}`)).json()).preferred_strategy).toBe(second.strategy)
+  await expect(page.getByTestId('strategy-picker')).toContainText(second.display_name, { timeout: 15_000 })
 })
 
 test('Header: document switcher (filter, select, delete), theme toggle, command palette', async ({ page }) => {

@@ -12,6 +12,12 @@ async function openSample(page: Page) {
   await expect(page.getByTestId('document-status')).toHaveText('ready', { timeout: 240_000 })
 }
 
+async function openSampleId(page: Page): Promise<string> {
+  await openSample(page)
+  const docs = await (await page.request.get('http://localhost:8000/api/v1/documents?status=ready&limit=1')).json()
+  return docs.documents[0].id
+}
+
 async function ask(page: Page, question: string) {
   const before = await page.getByTestId('answer-meta').count()
   await page.getByLabel('Your question').fill(question)
@@ -87,15 +93,41 @@ test('strategy and model can be switched from the Workspace header, and the reco
   for (const model of installed.filter((m: { cloud: boolean }) => !m.cloud)) expect(onDisk.has(model.name)).toBe(true)
   await page.keyboard.press('Escape')
 
+  // The recommendation card is there from the start, with its suggestion marked as such
+  // until the strategies have actually been measured on this document.
   const card = page.getByTestId('recommendation-card')
   await expect(card).toBeVisible({ timeout: 60_000 })
-  await expect(card.getByTestId('recommendation-reasons').locator('li').first()).toContainText(/\d/)
-  if (await card.getByTestId('use-recommended').isVisible()) {
-    await card.getByTestId('use-recommended').click()
-  }
-  await expect(card.getByTestId('recommendation-in-use')).toBeVisible({ timeout: 120_000 })
-  // After adopting it, the card offers to measure what changed rather than claiming a gain.
-  await expect(card.getByTestId('improvement-panel')).toBeVisible()
+})
+
+test('after upload the best strategy is measured, shown with its score, and used automatically', async ({ page }) => {
+  // Graph reading and the strategy measurement are real model work in the background.
+  test.setTimeout(10 * 60_000)
+  const id = await openSampleId(page)
+  const card = page.getByTestId('recommendation-card')
+  await expect(card).toBeVisible({ timeout: 60_000 })
+  // Graph reading, then measuring strategies on five questions from the document.
+  await expect(card).toHaveAttribute('data-basis', 'measured', { timeout: 420_000 })
+  const doc = await (await page.request.get(`http://localhost:8000/api/v1/documents/${id}`)).json()
+  const rec = await (await page.request.get(`http://localhost:8000/api/v1/documents/${id}/recommendation`)).json()
+  const best = rec.measured.ranking[0]
+  expect(rec.measured.ranking.length).toBeGreaterThanOrEqual(2)
+  // The highest score wins, and the card says what it scored.
+  expect(rec.recommended).toBe(best.strategy)
+  expect(doc.preferred_strategy).toBe(best.strategy)
+  await expect(card.getByTestId('recommended-strategy')).toHaveText(best.display_name)
+  await expect(card.getByTestId('recommended-score')).toHaveText(`score ${best.score.toFixed(2)}`)
+  await expect(card.getByTestId('measured-ranking').locator('[data-testid^="ranking-"]')).toHaveCount(rec.measured.ranking.length)
+  await expect(card.getByTestId('recommendation-in-use')).toContainText('selected automatically')
+
+  // A question that names no strategy is answered with it.
+  const answer = await ask(page, 'How much is the home office stipend?')
+  await expect(answer.getByTestId('answer-meta')).toContainText(`Answered with: ${best.display_name}`)
+
+  // Compare is there for a closer look, with the measured strategies preselected.
+  await card.getByTestId('compare-recommended').click()
+  await expect(page.getByTestId('compare-dialog')).toBeVisible()
+  await expect(page.getByTestId(`compare-pick-${rec.measured.ranking[1].strategy}`)).toBeChecked()
+  await page.keyboard.press('Escape')
 })
 
 test('Evaluation has exactly three views; Usage also carries measured quality', async ({ page }) => {

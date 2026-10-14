@@ -19,6 +19,7 @@ import { useJob } from '@/hooks/useJob'
 import { useStrategies } from '@/hooks/useStrategies'
 import {
   ApiError,
+  announceMeasured,
   decideAdvisor,
   getAdvisor,
   getBenchmark,
@@ -121,6 +122,7 @@ export function QualitySection({ documentId }: { documentId: string }) {
 
   const job = useJob(jobId, (finished) => {
     if (finished.status === 'done') {
+      announceMeasured()
       toast.success('Evaluation finished')
       setSelectedId(null)
     } else if (finished.status === 'failed') toast.error(finished.error ?? 'Evaluation failed')

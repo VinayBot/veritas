@@ -23,7 +23,8 @@ from app.agents import runs
 from app.agents.answer_style import DETAIL_LEVELS, resolve_detail
 from app.agents.orchestrator import cache_scope, run_chat_turn_tracked
 from app.api.schemas.chat import ChatRequest
-from app.rag_engines.registry import UnknownStrategyError, default_strategy_id, get_strategy
+from app.rag_engines.document_strategy import effective_strategy
+from app.rag_engines.registry import UnknownStrategyError, get_strategy
 from app.retrieval import semantic_cache
 
 router = APIRouter(tags=["chat"])
@@ -55,7 +56,7 @@ async def _stream_new_run(
 
 @router.post("/chat")
 async def chat(body: ChatRequest) -> StreamingResponse:
-    strategy_id = body.strategy or default_strategy_id()
+    strategy_id = body.strategy or (await effective_strategy(body.document_id))[0]
     try:
         get_strategy(strategy_id)
     except UnknownStrategyError as exc:

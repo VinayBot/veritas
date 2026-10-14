@@ -351,6 +351,9 @@ async def _run_enrichment(
             )
         else:
             await _update_document(document_id, enrichment_status="done")
+        # Then find the best strategy for this document by measuring it. A separate task with
+        # its own status, so "enriched" never waits for it.
+        _start_auto_measure(document_id)
     except _Cancelled:
         await _update_document(document_id, enrichment_status="cancelled")
 
@@ -563,6 +566,18 @@ async def _retry_url(document_id: str, url: str) -> None:
         )
 
 
+def _start_auto_measure(document_id: str) -> None:
+    from app.rag_engines import document_strategy
+
+    if not document_strategy.auto_measure_enabled():
+        return
+    task = asyncio.ensure_future(document_strategy.auto_measure(document_id))
+    key = f"{document_id}:measure"
+    _enrichment_tasks[key] = task
+    task.add_done_callback(lambda _t: _enrichment_tasks.pop(key, None))
+    _track(task)
+
+
 def _start_enrichment(document_id: str, coro: Any) -> None:
     task = asyncio.ensure_future(coro)
     _enrichment_tasks[document_id] = task
@@ -572,15 +587,18 @@ def _start_enrichment(document_id: str, coro: Any) -> None:
 
 async def stop_enrichment(document_id: str) -> bool:
     """Stops a document's background graph and profile work. True if something was running."""
-    task = _enrichment_tasks.get(document_id)
-    if task is None or task.done():
-        return False
-    task.cancel()
-    try:
-        await task
-    except (asyncio.CancelledError, Exception):  # noqa: BLE001 — only that it has stopped
-        pass
-    return True
+    stopped = False
+    for key in (document_id, f"{document_id}:measure"):
+        task = _enrichment_tasks.get(key)
+        if task is None or task.done():
+            continue
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001 — only that it has stopped
+            pass
+        stopped = True
+    return stopped
 
 
 async def cancel_ingestion(document_id: str) -> None:

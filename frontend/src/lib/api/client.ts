@@ -215,6 +215,14 @@ export const setDefaultStrategy = (strategy: string) =>
 export const prepareStrategy = (strategyId: string, documentId: string, rebuild = false) =>
   json<{ job_id: string }>(`/rag/strategies/${strategyId}/prepare`, { document_id: documentId, rebuild })
 
+/** The strategy this document is answered with when a question names none; null hands the
+ * choice back to automatic measurement. */
+export const setDocumentStrategy = (documentId: string, strategy: string | null) =>
+  json<{ document_id: string; strategy: string; source: string }>(`/documents/${documentId}/strategy`, { strategy }, 'PUT')
+
+/** Measures the main strategies on the document now and adopts the best (a job). */
+export const startMeasure = (documentId: string) => json<{ job_id: string }>(`/documents/${documentId}/measure`, {})
+
 export const getRecommendation = (documentId: string) =>
   request<Recommendation>(`/documents/${documentId}/recommendation`)
 
@@ -232,6 +240,10 @@ export const estimateComparison = (params: CompareParams) =>
 export const startComparison = (params: CompareParams) => json<{ job_id: string }>('/rag/compare', params)
 
 export const getComparison = (id: string) => request<Comparison>(`/rag/comparisons/${id}`)
+
+/** Fired after any comparison or evaluation finishes, so views built on measurements refresh. */
+export const MEASURED_EVENT = 'veritas:measured'
+export const announceMeasured = () => window.dispatchEvent(new Event(MEASURED_EVENT))
 
 export const listComparisons = (documentId: string) =>
   request<{ comparisons: Comparison[] }>(`/documents/${documentId}/comparisons`)

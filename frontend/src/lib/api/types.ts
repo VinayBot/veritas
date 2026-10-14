@@ -83,6 +83,11 @@ export interface DocumentResponse {
   chunk_strategy: string | null
   graph_entity_count: number | null
   graph_triple_count: number | null
+  /** The strategy this document is answered with: measured best after upload, or the user's choice. */
+  preferred_strategy?: string | null
+  strategy_source?: 'measured' | 'chosen' | null
+  measure_status?: 'queued' | 'running' | 'done' | 'skipped' | 'failed' | null
+  measure_error?: string | null
   created_at: string
   updated_at: string
 }
@@ -427,6 +432,33 @@ export interface Recommendation {
   current_default: string
   provisional: boolean
   features: ProfileResponse
+  /** "measured": follows strategies run on this document's question set. "rules": a
+   * prediction from the document's shape that has not been checked yet. */
+  basis: 'measured' | 'rules'
+  measured: MeasuredEvidence | null
+  rule_recommended: string
+  rule_display_name: string
+  rule_reasons: string[]
+  /** Where current_default comes from for this document. */
+  strategy_source: 'measured' | 'chosen' | 'default'
+  measure_status: 'queued' | 'running' | 'done' | 'skipped' | 'failed' | null
+  measure_error: string | null
+  /** A measurement starts by itself after upload. */
+  auto_measure: boolean
+}
+
+export interface MeasuredEvidence {
+  source: 'comparison' | 'evaluation'
+  run_id: string
+  created_at: string | null
+  n: number
+  small_sample: boolean
+  metrics_used: string[]
+  ranking: { strategy: string; display_name: string; score: number }[]
+  winner: string
+  margin: number
+  clear: boolean
+  measured: string[]
 }
 
 export interface MetricDelta {

@@ -47,6 +47,13 @@ class Document(Base):
     chunk_strategy: Mapped[str | None] = mapped_column(String(32), nullable=True)
     graph_entity_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     graph_triple_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # The strategy this document is answered with when a question does not name one: the
+    # measured best after upload ("measured"), or one the user picked ("chosen").
+    preferred_strategy: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    strategy_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # The automatic strategy measurement after upload: queued | running | done | skipped | failed
+    measure_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    measure_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime)
     updated_at: Mapped[datetime] = mapped_column(DateTime)

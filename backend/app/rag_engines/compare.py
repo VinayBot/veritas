@@ -43,7 +43,7 @@ from app.evaluation.datasets import load_dataset
 from app.evaluation.models import ComparisonRun, StrategyEvaluation
 from app.ingestion.models import Document
 from app.rag_engines import availability
-from app.rag_engines.registry import default_strategy_id, get_strategy
+from app.rag_engines.registry import get_strategy
 
 SMALL_SAMPLE = 10
 # Below this difference in the comparison score, two strategies are treated as tied.
@@ -377,7 +377,10 @@ async def run_comparison(
 ) -> ComparisonRun:
     if bool(dataset_id) == bool(query and query.strip()):
         raise ComparisonError("invalid_comparison", "Give either an eval set or one question.")
-    baseline = baseline or default_strategy_id()
+    if baseline is None:
+        from app.rag_engines.document_strategy import effective_strategy
+
+        baseline = (await effective_strategy(document_id))[0]
     ordered = list(dict.fromkeys([baseline, *strategies]))  # the baseline is always measured
     for strategy_id in ordered:
         get_strategy(strategy_id)

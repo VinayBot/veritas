@@ -38,6 +38,10 @@ class DocumentResponse(BaseModel):
     chunk_strategy: str | None
     graph_entity_count: int | None
     graph_triple_count: int | None
+    preferred_strategy: str | None = None
+    strategy_source: str | None = None
+    measure_status: str | None = None
+    measure_error: str | None = None
     created_at: datetime
     updated_at: datetime
 

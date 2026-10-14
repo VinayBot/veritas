@@ -26,6 +26,17 @@ class Settings(BaseSettings):
 
     # --- App ---
     app_env: str = Field(default="dev", alias="APP_ENV")
+    # After a document is ready, measure the main strategies on a few of its own questions and
+    # answer it with the best one. About two minutes of background model time per upload,
+    # always behind chat and user-started jobs. Off under tests unless a test turns it on.
+    auto_measure_on_ingest: bool | None = Field(default=None, alias="AUTO_MEASURE_ON_INGEST")
+
+    @property
+    def auto_measure_enabled(self) -> bool:
+        if self.auto_measure_on_ingest is not None:
+            return self.auto_measure_on_ingest
+        return self.app_env != "test"
+
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     api_host: str = Field(default="0.0.0.0", alias="API_HOST")
     api_port: int = Field(default=8000, alias="API_PORT")

@@ -8,7 +8,7 @@ import { ProgressBar } from '@/components/ui/progress-bar'
 import { ErrorState } from '@/components/ui/empty-state'
 import { LoadingState } from '@/components/ui/loading-state'
 import { useJob } from '@/hooks/useJob'
-import { prepareStrategy, setDefaultStrategy } from '@/lib/api/client'
+import { getStrategies, prepareStrategy, setDocumentStrategy } from '@/lib/api/client'
 import type { StrategiesResponse, Strategy } from '@/lib/api/types'
 import { ms } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -70,10 +70,11 @@ export function StrategyPicker({
 
   async function handleDefault(strategy: Strategy) {
     try {
-      const next = await setDefaultStrategy(strategy.id)
+      if (!documentId) return
+      await setDocumentStrategy(documentId, strategy.id)
       onSelect(null)
-      onChanged(next)
-      toast.success(`${strategy.display_name} is now the default`)
+      onChanged(await getStrategies(documentId))
+      toast.success(`${strategy.display_name} now answers this document`)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not change the default')
     }
@@ -139,7 +140,7 @@ export function StrategyPicker({
                         </span>
                       </button>
                       {s.available && !s.is_default && (
-                        <Button variant="ghost" size="icon-sm" aria-label={`Make ${s.display_name} the default`} title="Make default" onClick={() => void handleDefault(s)}>
+                        <Button variant="ghost" size="icon-sm" aria-label={`Use ${s.display_name} for this document`} title="Use for this document" onClick={() => void handleDefault(s)}>
                           <Star className="size-3.5" />
                         </Button>
                       )}

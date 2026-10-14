@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { ComparisonView } from './ComparisonView'
 import { useJob } from '@/hooks/useJob'
 import { AnalystBot } from '@/components/robot/analyst-bot'
-import { estimateComparison, generateDataset, getComparison, listDatasets, startComparison, type CompareParams } from '@/lib/api/client'
+import { announceMeasured, estimateComparison, generateDataset, getComparison, listDatasets, startComparison, type CompareParams } from '@/lib/api/client'
 import type { CompareEstimate, ComparisonResult, EvalDataset, Strategy } from '@/lib/api/types'
 import { cn } from '@/lib/utils'
 
@@ -102,6 +102,7 @@ export function CompareDialog({
 
   const job = useJob(jobId, (finished) => {
     if (finished.status === 'done' && finished.result?.comparison_id) {
+      announceMeasured()
       getComparison(String(finished.result.comparison_id))
         .then((c) => setResult(c.result))
         .catch((err) => toast.error(err instanceof Error ? err.message : 'Could not load the comparison'))

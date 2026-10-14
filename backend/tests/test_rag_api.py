@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 
 import pytest
 from conftest import upload_and_wait_ready, wait_for_enrichment
@@ -263,3 +264,84 @@ async def test_recommendation_after_ingest_has_document_derived_reasons(
 
     missing = await client.get("/api/v1/documents/nope/recommendation")
     assert missing.status_code == 404
+
+
+def _measured(name: str, quality: float) -> dict:
+    """A strategy result as a comparison stores it; `quality` sets every scored metric."""
+    return {
+        "name": name,
+        "retrieval_metrics": {"ndcg_at_5": quality, "recall_at_5": quality, "n": 5},
+        "faithfulness": quality,
+        "answer_relevancy": quality,
+        "correctness": quality,
+        "p50_latency_ms": 1000.0,
+        "p95_latency_ms": 1500.0,
+        "n_samples": 5,
+        "n_judged": {"faithfulness": 5, "relevancy": 5, "correctness": 5},
+    }
+
+
+async def _store_comparison(document_id: str, results: list[dict]) -> None:
+    import uuid
+    from datetime import UTC, datetime
+
+    from app.core.db import session_scope
+    from app.evaluation.models import ComparisonRun
+
+    async with session_scope() as session:
+        session.add(
+            ComparisonRun(
+                id=str(uuid.uuid4()),
+                document_id=document_id,
+                dataset_id="set-1",
+                query=None,
+                strategies=[r["name"] for r in results],
+                baseline=results[0]["name"],
+                result={"strategies": results, "n_queries": 5},
+                created_at=datetime.now(UTC),
+            )
+        )
+        await session.commit()
+
+
+async def test_measured_results_overrule_the_rules_prediction(client: AsyncClient) -> None:
+    """Reported by the owner: the card recommended GraphRAG while a comparison on the same
+    document showed Hybrid winning. The rules' pick is a prediction; once it has been
+    measured and lost, the measured winner is recommended and the card says why."""
+    unique = POLICY + f"\n\nRevision {uuid.uuid4()}.".encode()
+    doc = await upload_and_wait_ready(client, "policy-a.md", unique, "text/markdown")
+    # The rules read the graph, which is built in the background: wait so they stay put.
+    await wait_for_enrichment(client, doc["id"])
+    before = (await client.get(f"/api/v1/documents/{doc['id']}/recommendation")).json()
+    assert before["basis"] == "rules" and before["measured"] is None
+    predicted = before["rule_recommended"]
+
+    other = "hybrid" if predicted != "hybrid" else "hybrid_rerank"
+    await _store_comparison(doc["id"], [_measured(predicted, 0.55), _measured(other, 0.9)])
+    after = (await client.get(f"/api/v1/documents/{doc['id']}/recommendation")).json()
+    assert after["basis"] == "measured"
+    assert after["recommended"] == other
+    assert after["rule_recommended"] == predicted
+    assert [e["strategy"] for e in after["measured"]["ranking"]] == [other, predicted]
+    assert any("Measured on 5 questions" in r for r in after["reasons"])
+
+
+async def test_the_measured_best_wins_even_when_the_prediction_was_not_measured(
+    client: AsyncClient,
+) -> None:
+    """The highest measured score decides. A prediction that was never measured is mentioned
+    as something to compare, not recommended over a measured result."""
+    unique = POLICY + f"\n\nRevision {uuid.uuid4()}.".encode()
+    doc = await upload_and_wait_ready(client, "policy-b.md", unique, "text/markdown")
+    # The rules read the graph, which is built in the background: wait so they stay put.
+    await wait_for_enrichment(client, doc["id"])
+    predicted = (await client.get(f"/api/v1/documents/{doc['id']}/recommendation")).json()[
+        "rule_recommended"
+    ]
+    others = [s for s in ("hybrid", "hybrid_rerank", "naive") if s != predicted][:2]
+    await _store_comparison(doc["id"], [_measured(others[0], 0.6), _measured(others[1], 0.8)])
+    body = (await client.get(f"/api/v1/documents/{doc['id']}/recommendation")).json()
+    assert body["basis"] == "measured"
+    assert body["recommended"] == others[1]
+    assert body["rule_recommended"] == predicted
+    assert any("not been measured here" in r for r in body["reasons"])

@@ -19,10 +19,9 @@ from app.graphrag.service import build_graph_for_document
 from app.ingestion import service as ingestion_service
 from app.ingestion.models import Document
 from app.profiler import service as profiler_service
-from app.rag_engines import advisor, availability, compare
+from app.rag_engines import advisor, availability, compare, document_strategy, evidence
 from app.rag_engines.registry import (
     UnknownStrategyError,
-    default_strategy_id,
     get_strategy,
     list_strategies,
     set_default_strategy,
@@ -114,7 +113,8 @@ async def strategies(document_id: str | None = None) -> StrategiesResponse:
     given) and, if not, the reason and what would fix it."""
     document = await _document(document_id) if document_id else None
     llm = await availability.llm_state()
-    default = default_strategy_id()
+    # With a document, "default" is what that document is answered with.
+    default = (await document_strategy.effective_strategy(document_id))[0]
     out = []
     for spec in list_strategies():
         state = await availability.check(spec, document, llm)
@@ -222,8 +222,9 @@ async def prepare_strategy(strategy_id: str, body: PrepareRequest) -> StartedJob
 
 @router.get("/documents/{document_id}/recommendation")
 async def recommendation(document_id: str) -> dict:
-    """The strategy the rule set recommends for this document, the measured reasons, and the
-    full rule trace. Deterministic: the same document always gets the same answer."""
+    """The strategy to use for this document. Once strategies have been measured on its
+    question set, the measured winner; before that, the rule set's prediction from the
+    document's shape, with its reasons and the full rule trace."""
     document = await _document(document_id)
     if document.masked_text is None:
         raise AppError(
@@ -237,19 +238,75 @@ async def recommendation(document_id: str) -> dict:
         document.page_count,
     )
     result = advisor.recommend(profile)
+    rule_pick = result.recommended
+    payload = result.to_dict()
+    measured = await evidence.measured_evidence(document_id, prefer=rule_pick)
+    basis = "rules"
+    rule_name = get_strategy(rule_pick).display_name
+
+    def describe(entry: dict) -> str:
+        return f"{entry['display_name']} {entry['score']:.2f}"
+
+    if measured is not None:
+        # Measured beats predicted: the highest score on this document's own questions wins.
+        basis = "measured"
+        ranking = measured["ranking"]
+        top = ranking[0]
+        sample = f"{measured['n']} question{'s' if measured['n'] != 1 else ''}" + (
+            " (a small sample)" if measured["small_sample"] else ""
+        )
+        scoreline = ", ".join(describe(e) for e in ranking)
+        payload["recommended"] = top["strategy"]
+        reasons = [f"Measured on {sample}: {scoreline} (combined quality score, 0-1)."]
+        if rule_pick == top["strategy"]:
+            reasons.extend(result.reasons)
+        elif rule_pick in measured["measured"]:
+            reasons.append(
+                f"The document's shape suggested {rule_name}, but it scored "
+                f"{next(e['score'] for e in ranking if e['strategy'] == rule_pick):.2f} "
+                f"against {top['score']:.2f} for {top['display_name']} on this document."
+            )
+        else:
+            reasons.append(
+                f"From the document's shape the rules also suggest {rule_name}, which has not "
+                "been measured here; compare it to check."
+            )
+        payload["reasons"] = reasons
+        payload["runner_up"] = ranking[1]["strategy"] if len(ranking) > 1 else None
+        payload["confidence"] = advisor.confidence_from_margin(
+            ranking[0]["score"], ranking[1]["score"] if len(ranking) > 1 else 0.0
+        )
+    recommended = payload["recommended"]
+    if basis == "measured" and document.preferred_strategy is None:
+        # Measured before automatic selection existed (or by a comparison the user ran):
+        # the document adopts its measured best, exactly as a new upload would.
+        await document_strategy.adopt_measured(document_id, recommended)
+    effective, effective_source = await document_strategy.effective_strategy(document_id)
     llm = await availability.llm_state()
-    state = await availability.check(get_strategy(result.recommended), document, llm)
+    state = await availability.check(get_strategy(recommended), document, llm)
+    runner_up = payload.get("runner_up")
     return {
         "document_id": document_id,
-        **result.to_dict(),
-        "display_name": get_strategy(result.recommended).display_name,
-        "runner_up_display_name": (
-            get_strategy(result.runner_up).display_name if result.runner_up else None
-        ),
+        **payload,
+        "display_name": get_strategy(recommended).display_name,
+        "runner_up_display_name": get_strategy(runner_up).display_name if runner_up else None,
+        # "measured": the strategies have been run on this document's question set and the
+        # recommendation follows the result. "rules": a prediction from the document's shape,
+        # not yet checked; `measured` then says what has been measured so far, if anything.
+        "basis": basis,
+        "measured": measured,
+        "rule_recommended": rule_pick,
+        "rule_display_name": rule_name,
+        "rule_reasons": result.reasons,
         "available": state.available,
         "unavailable_reason": state.reason,
         "action": state.action,
-        "current_default": default_strategy_id(),
+        "current_default": effective,
+        "strategy_source": effective_source,
+        "measure_status": document.measure_status,
+        # Whether a measurement will start by itself once background enrichment is done.
+        "auto_measure": document_strategy.auto_measure_enabled(),
+        "measure_error": document.measure_error,
         # The graph is built in the background after a document becomes ready; until it has
         # finished, graph-based signals are still zero and the recommendation may change.
         "provisional": document.enrichment_status == "running",
@@ -261,7 +318,9 @@ async def recommendation(document_id: str) -> dict:
 async def compare_estimate(body: CompareRequest) -> dict:
     await _document(body.document_id)
     try:
-        baseline = body.baseline or default_strategy_id()
+        baseline = (
+            body.baseline or (await document_strategy.effective_strategy(body.document_id))[0]
+        )
         ordered = list(dict.fromkeys([baseline, *body.strategies]))
         for strategy_id in ordered:
             get_strategy(strategy_id)
@@ -327,3 +386,37 @@ async def list_comparisons(document_id: str) -> ComparisonListOut:
             for r in rows
         ]
     )
+
+
+class DocumentStrategyRequest(BaseModel):
+    """A strategy id, or null to hand the choice back to automatic measurement."""
+
+    strategy: str | None = None
+
+
+@router.put("/documents/{document_id}/strategy")
+async def set_document_strategy(document_id: str, body: DocumentStrategyRequest) -> dict:
+    """The strategy this document is answered with when a question does not name one."""
+    await _document(document_id)
+    try:
+        await document_strategy.set_document_strategy(document_id, body.strategy)
+    except UnknownStrategyError as exc:
+        raise _unknown(exc) from exc
+    strategy, source = await document_strategy.effective_strategy(document_id)
+    return {"document_id": document_id, "strategy": strategy, "source": source}
+
+
+@router.post("/documents/{document_id}/measure", response_model=StartedJob)
+async def measure_document(document_id: str) -> StartedJob:
+    """Measures the main strategies on this document now and adopts the best, as happens
+    automatically after upload. A background job; the result carries the ranking."""
+    await _document(document_id)
+    job = await jobs.create_job("measure", {"document_id": document_id})
+
+    async def work(ctx: jobs.JobContext) -> dict:
+        await ctx.progress(0.05, "Measuring strategies on this document")
+        measured = await document_strategy.auto_measure(document_id)
+        return {"measured": measured}
+
+    jobs.launch(job.id, work)
+    return StartedJob(job_id=job.id)

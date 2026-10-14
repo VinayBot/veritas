@@ -60,7 +60,7 @@ from app.llm.models_config import get_model_config
 from app.llm.router import complete_with_latency_budget
 from app.rag_engines import execute as strategy_execute
 from app.rag_engines.base import StrategySpec
-from app.rag_engines.registry import UnknownStrategyError, default_strategy_id, get_strategy
+from app.rag_engines.registry import UnknownStrategyError, get_strategy
 from app.retrieval import semantic_cache
 from app.retrieval import service as retrieval_service
 from app.retrieval.index_guard import IndexMismatchError, assert_index_current
@@ -399,7 +399,11 @@ async def produce_turn(
     on_session_started: Callable[[str, bool], Awaitable[None]] | None = None,
 ) -> Turn:
     """Half 1: the answer. Raises UnknownStrategyError for an unknown strategy id."""
-    spec = get_strategy(strategy or default_strategy_id())
+    if strategy is None:
+        from app.rag_engines.document_strategy import effective_strategy
+
+        strategy = (await effective_strategy(document_id))[0]
+    spec = get_strategy(strategy)
     resolved_detail = resolve_detail(query, detail)
     session_id = session_id or str(uuid.uuid4())
     await assert_index_current(document_id)

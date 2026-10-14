@@ -4,7 +4,7 @@ import { Trophy } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { MetricTip } from '@/components/ui/metric-tip'
-import { setDefaultStrategy } from '@/lib/api/client'
+import { setDocumentStrategy } from '@/lib/api/client'
 import type { ComparisonResult, ConfigResultOut, MetricDelta } from '@/lib/api/types'
 import { diffWords } from '@/lib/diff'
 import type { GlossaryTerm } from '@/lib/glossary'
@@ -60,11 +60,11 @@ export function ComparisonView({
   async function adopt(id: string) {
     setAdopting(true)
     try {
-      await setDefaultStrategy(id)
-      toast.success(`${label(id)} is now the default strategy`)
+      await setDocumentStrategy(result.document_id, id)
+      toast.success(`${label(id)} now answers this document`)
       onAdopted?.(id)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not change the default')
+      toast.error(err instanceof Error ? err.message : 'Could not change the strategy')
     } finally {
       setAdopting(false)
     }
