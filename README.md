@@ -18,20 +18,28 @@ to what was built, where it is, and the measured evidence.
 ## Measured results
 
 From `make eval` on the bundled HR handbook ([docs/BENCHMARKS.md](docs/BENCHMARKS.md); 10
-generated questions per strategy, 6 for the agent; judged by the local 3B model, so treat
-small differences as noise):
+generated questions per strategy, 6 for the agent; brackets are 95% bootstrap intervals):
 
-| Strategy | Recall@5 | nDCG@5 | Faithfulness | Correctness | p95 latency | Production gates |
+| Strategy | Recall@5 | nDCG@5 | Faithfulness | Correctness | p95 latency | Score |
 |---|---|---|---|---|---|---|
-| Hybrid + Rerank | 1.00 | 1.00 | 0.67 | 0.64 | 4.5 s | faithfulness below 0.85 |
-| HyDE | 1.00 | 0.96 | 0.80 | 0.81 | 11.0 s | faithfulness below 0.85 |
-| GraphRAG | 1.00 | 0.96 | 0.68 | 0.73 | 4.0 s | faithfulness below 0.85 |
-| **Agentic** | 1.00 | 1.00 | **0.87** | **0.82** | 13.7 s | **all pass** |
+| **Hybrid + Rerank** | 1.00 | 0.99 | 0.71 (0.53–0.82) | 0.75 (0.60–0.88) | 4.2 s | **0.71** |
+| GraphRAG | 1.00 | 0.99 | 0.66 (0.42–0.84) | 0.72 (0.53–0.87) | 3.9 s | 0.68 |
+| HyDE | 1.00 | 0.99 | 0.66 (0.42–0.84) | 0.65 (0.43–0.85) | 6.0 s | 0.65 |
+| Hybrid | 1.00 | 1.00 | 0.62 (0.40–0.80) | 0.63 (0.42–0.83) | 7.8 s | 0.62 |
+| Agentic | 1.00 | 1.00 | 0.53 (0.23–0.83) | 0.60 (0.33–0.87) | 15.7 s | 0.54 |
 
-Safety on the same run: **97.6%** of 42 red-team attacks blocked, **0** PII values in the
-indexed chunks. The agent's verify-and-revise loop is what lifts faithfulness over the gate;
-the fast strategies trade some of it for 3–4× lower latency, which is why the app recommends
-per document and lets you compare.
+Hybrid retrieval finds the right passage every time (Recall@5 1.00); the differences are in
+generation, and they are small next to the noise. The intervals overlap; the agent's
+faithfulness, measured on six questions, ranged from 0.53 to 0.87 across runs; and a second
+judge from another model family agreed with the first on 76% of correct/incorrect verdicts but
+no better than chance once their base rates are accounted for (Cohen's κ 0.00). So the app
+does not trust one benchmark: it measures each document on its own questions, shows the
+sample size and intervals, and lets you compare. Hybrid + Rerank leads on this document at a
+quarter of the agent's latency; no strategy cleared the 0.85 faithfulness gate in this run.
+
+Safety on the same run: **42/42** red-team attacks blocked with no false positives, **0** PII
+values in the indexed chunks; PII detection measures precision 0.97, recall 1.00 on a labelled
+set in four languages (`make pii-eval`).
 
 ## Quickstart
 

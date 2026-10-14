@@ -58,6 +58,23 @@ async def _wait_until_ready(document_id: str, timeout: float = 300.0) -> None:
         await asyncio.sleep(0.5)
 
 
+async def _wait_for_enrichment(document_id: str, timeout: float = 900.0) -> None:
+    """Graph extraction and profiling run in the background after "ready" and use the same
+    local model. Benchmarking while they run measured their contention, not the strategies:
+    one run's latencies doubled. Wait until they finish (or give up after `timeout`)."""
+    loop = asyncio.get_event_loop()
+    started = loop.time()
+    while loop.time() - started < timeout:
+        doc = await get_document(document_id)
+        if doc is None or doc.enrichment_status in ("done", "failed", "cancelled"):
+            return
+        # Not started yet just after "ready"; if it never starts, there is nothing to wait for.
+        if doc.enrichment_status is None and loop.time() - started > 30:
+            return
+        await asyncio.sleep(2.0)
+    print("Background enrichment still running after the timeout; benchmarking anyway.")
+
+
 def _num(value: float | None) -> str:
     return f"{value:.3f}" if value is not None else "n/m"
 
@@ -102,7 +119,9 @@ async def main() -> int:
         document_id = await ingest_upload(demo_path.name, demo_path.read_bytes(), "text/markdown")
         print(f"Queued as document_id={document_id}, waiting for ingestion to finish...")
         await _wait_until_ready(document_id)
-        print("Ingestion ready.")
+        print("Ingestion ready; waiting for the background graph and profile to finish...")
+        await _wait_for_enrichment(document_id)
+        print("Enrichment finished.")
 
     print(
         f"Running benchmark: {len(PUBLISHED_STRATEGIES)} strategies, up to "

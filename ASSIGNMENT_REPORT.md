@@ -25,7 +25,7 @@ reproduce them are in section 9.
 | Tests | 480 backend tests (pytest), 28 frontend unit tests (Vitest), 32 end-to-end tests (Playwright) against the real backend and models |
 | Coverage | 81% of backend lines, measured without the language model |
 | Retrieval strategies | 8: Naive, Hybrid, Hybrid + Rerank, HyDE, Semantic chunks, GraphRAG, Agentic, Council |
-| Best measured result | Agentic RAG passes every production gate: faithfulness 0.87, correctness 0.82, Recall@5 1.00, p95 13.7 s |
+| Best measured result | Hybrid + Rerank: faithfulness 0.71 (0.53–0.82), correctness 0.75, Recall@5 1.00, p95 4.2 s; differences between strategies are within the confidence intervals |
 | Safety | 42/42 red-team attacks blocked, 0/15 harmless prompts blocked, 0 PII values in the index; PII detection precision 0.97, recall 1.00 on a labelled set in four languages |
 | Retrieval check | 31 hand-written questions over 4 real documents (incl. French and a 61-page handbook): every answer's evidence is in the top 5 |
 | Databases | SQLite by default, PostgreSQL supported; the full suite passes on both |
@@ -201,23 +201,36 @@ model; and because the judge is the same small model that answers, a second judg
 different model family (`gemma2:2b`) re-scores correctness and the benchmark reports their
 agreement (mean absolute difference, Pearson r, verdict agreement, Cohen's κ).
 
-Latest run, bundled HR handbook, 10 questions per strategy (6 for the agent):
+Latest run, bundled HR handbook, 10 questions per strategy (6 for the agent); brackets are 95%
+bootstrap intervals; answer F1 needs no judge:
 
-| Strategy | P@5 | Recall@5 | MRR | nDCG@5 | Faithfulness | Relevancy | Correctness | p95 | Score |
+| Strategy | P@5 | Recall@5 | MRR | nDCG@5 | Faithfulness | Correctness | Answer F1 | p95 | Score |
 |---|---|---|---|---|---|---|---|---|---|
-| Naive | 0.30 | 0.90 | 0.95 | 0.87 | 0.64 | 0.71 | 0.63 | 9.4 s | 0.60 |
-| Hybrid | 0.35 | 1.00 | 1.00 | 1.00 | 0.62 | 0.69 | 0.59 | 6.1 s | 0.62 |
-| Hybrid + Rerank | 0.35 | 1.00 | 1.00 | 1.00 | 0.67 | 0.69 | 0.64 | 4.5 s | 0.66 |
-| HyDE | 0.35 | 1.00 | 0.95 | 0.96 | 0.80 | 0.85 | 0.81 | 11.0 s | 0.70 |
-| Semantic chunks | 0.20 | 0.80 | 1.00 | 0.85 | 0.62 | 0.76 | 0.61 | 3.7 s | 0.62 |
-| GraphRAG | 0.35 | 1.00 | 0.95 | 0.96 | 0.68 | 0.82 | 0.73 | 4.0 s | 0.69 |
-| **Agentic** | 0.33 | 1.00 | 1.00 | 1.00 | **0.87** | **0.93** | **0.82** | 13.7 s | **0.71** |
+| Naive | 0.30 | 1.00 | 0.88 | 0.91 | 0.62 (0.36–0.80) | 0.54 (0.28–0.79) | 0.20 | 14.1 s | 0.55 |
+| Hybrid | 0.35 | 1.00 | 1.00 | 1.00 | 0.62 (0.40–0.80) | 0.63 (0.42–0.83) | 0.30 | 7.8 s | 0.62 |
+| **Hybrid + Rerank** | 0.35 | 1.00 | 0.99 | 0.99 | **0.71** (0.53–0.82) | **0.75** (0.60–0.88) | 0.22 | **4.2 s** | **0.71** |
+| HyDE | 0.35 | 1.00 | 0.99 | 0.99 | 0.66 (0.42–0.84) | 0.65 (0.43–0.85) | 0.19 | 6.0 s | 0.65 |
+| Semantic chunks | 0.22 | 0.80 | 1.00 | 0.85 | 0.58 (0.33–0.80) | 0.57 (0.33–0.77) | 0.17 | 4.6 s | 0.59 |
+| GraphRAG | 0.35 | 1.00 | 0.99 | 0.99 | 0.66 (0.42–0.84) | 0.72 (0.53–0.87) | 0.18 | 3.9 s | 0.68 |
+| Agentic | 0.33 | 1.00 | 1.00 | 1.00 | 0.53 (0.23–0.83) | 0.60 (0.33–0.87) | 0.18 | 15.7 s | 0.54 |
 
-Reading it: hybrid retrieval with reranking already finds the right passage every time
-(Recall@5 1.00, MRR 1.00), so the differences are in generation. HyDE and the agent's
-verify-and-revise loop raise faithfulness; the agent is the only one over the 0.85 gate, at
-about three times the latency of Hybrid + Rerank. (Each question is written from one or two
-chunks, so Precision@5 cannot exceed 0.2–0.4.)
+Second judge (`gemma2:2b`) on the same 46 answers: mean absolute difference 0.15, Pearson r
+0.51, same correct/incorrect verdict 76%, Cohen's κ 0.00.
+
+Reading it, honestly:
+- **Retrieval is solved for this document**: hybrid retrieval puts the source passage in the
+  top 5 every time (Recall@5 1.00, MRR ≈ 1.00). The differences are in generation. (Each
+  question is written from one or two chunks, so Precision@5 cannot exceed 0.2–0.4.)
+- **Generation differences are within the noise.** The intervals overlap; on six questions the
+  agent's faithfulness was 0.87 in one run and 0.53 in this one; and the two judges agree on
+  verdicts only at chance level once base rates are counted (κ 0.00). A single 10-question
+  benchmark cannot crown a strategy, which is why the app measures each document on its own
+  questions, shows sample sizes and intervals, and offers side-by-side comparison.
+- **Hybrid + Rerank** leads this run (score 0.71) at a quarter of the agent's latency. No
+  strategy cleared the 0.85 faithfulness gate in this run, so none is labelled production-ready.
+- Building this view changed the benchmark itself: an earlier run was taken while the
+  document's graph was still being read in the background, which doubled latencies; `make
+  eval` now waits for that background work before measuring.
 
 ### 6.2 Selection criteria for production
 
@@ -383,8 +396,11 @@ cd frontend && npx playwright test   # end-to-end, about 15 minutes
 - The judge is the same local 3B model that answers, so judged scores are noisier than with a
   large hosted judge; every score carries its sample size and confidence interval, a second
   judge's agreement is reported, and retrieval metrics and answer F1 need no judge at all.
-- Agentic RAG is the most faithful strategy but takes 11–14 s per answer on a laptop; it is
-  recommended when it wins, never switched to silently.
+- With a 10-question sample and a small local judge, the benchmark cannot separate the
+  strategies' generation quality (overlapping intervals, judge agreement at chance level). A
+  larger question set or a stronger judge would; the tooling for both is in place.
+- Agentic RAG takes 12–16 s per answer on a laptop; it is recommended when it measures best on
+  a document, never switched to silently.
 - PII detection was measured on 40 sentences; a larger labelled set would make the 0.97 / 1.00
   firmer. The output layer still redacts PII in answers as a second line.
 - Access control is off by default (a local single-user tool); it must be switched on before
