@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, Depends, File, UploadFile
 
 from app.api.schemas.documents import (
     DeleteDocumentResponse,
@@ -11,6 +11,7 @@ from app.api.schemas.documents import (
     UrlIngestRequest,
 )
 from app.core.errors import AppError
+from app.guardrails.rate_limit import limit_client
 from app.ingestion import service
 
 router = APIRouter(tags=["documents"])
@@ -18,7 +19,11 @@ router = APIRouter(tags=["documents"])
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 
-@router.post("/documents/upload", response_model=UploadResponse)
+@router.post(
+    "/documents/upload",
+    response_model=UploadResponse,
+    dependencies=[Depends(limit_client("upload"))],
+)
 async def upload_document(file: UploadFile = File(...)) -> UploadResponse:
     content = await file.read()
     if len(content) > MAX_UPLOAD_BYTES:

@@ -1,14 +1,19 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.api.schemas.redteam import RedTeamCategoryResult, RedTeamRunResponse
+from app.guardrails.rate_limit import limit_client
 from app.guardrails.redteam.runner import run_redteam_suite
 
 router = APIRouter(tags=["redteam"])
 
 
-@router.post("/redteam/run", response_model=RedTeamRunResponse)
+@router.post(
+    "/redteam/run",
+    response_model=RedTeamRunResponse,
+    dependencies=[Depends(limit_client("red-team"))],
+)
 async def run_redteam() -> RedTeamRunResponse:
     report = await run_redteam_suite()
     return RedTeamRunResponse(

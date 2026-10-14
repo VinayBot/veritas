@@ -16,13 +16,14 @@ import json
 import uuid
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
 from app.agents import runs
 from app.agents.answer_style import DETAIL_LEVELS, resolve_detail
 from app.agents.orchestrator import cache_scope, run_chat_turn_tracked
 from app.api.schemas.chat import ChatRequest
+from app.guardrails.rate_limit import limit_client
 from app.rag_engines.document_strategy import effective_strategy
 from app.rag_engines.registry import UnknownStrategyError, get_strategy
 from app.retrieval import semantic_cache
@@ -54,7 +55,7 @@ async def _stream_new_run(
         yield _sse(ev.event, ev.data)
 
 
-@router.post("/chat")
+@router.post("/chat", dependencies=[Depends(limit_client("chat"))])
 async def chat(body: ChatRequest) -> StreamingResponse:
     strategy_id = body.strategy or (await effective_strategy(body.document_id))[0]
     try:

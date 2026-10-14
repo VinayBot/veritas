@@ -117,3 +117,16 @@ clears both gates: **95.2%** block rate (40/42 — right at the floor) and **6.7
 false-positive rate (unchanged, since the one false positive is a DeBERTa call, not Llama
 Guard). `make redteam` run locally with Ollama up is the fuller three-signal result; CI is the
 safe subset of it, not a separately-tuned gate.
+
+## Rate limiting (`app/guardrails/rate_limit.py`)
+
+Two levels share one fixed one-minute window counter. **Per session**, inside the input
+guardrail: too many questions in one conversation are blocked and audited. **Per client
+address**, as a dependency on every endpoint that starts model work (chat, upload,
+comparisons, measurements, benchmarks, the red-team run): the session id is chosen by the
+client, and a request without one gets a new id, so a per-session limit alone can be dodged
+by changing or omitting it. Beyond the limit the API answers `429` with `Retry-After`.
+Counters live in Redis when `REDIS_URL` is set (shared by every backend process; CI tests this
+against a real Redis) and in memory otherwise; a Redis outage falls back to memory instead of
+refusing requests. `X-Forwarded-For` is trusted only with `TRUST_FORWARDED_FOR=true`.
+

@@ -47,10 +47,18 @@ jobs:
           tests/test_retrieval_api.py tests/test_ingestion_service.py tests/test_documents_api.py
           tests/test_reranker.py tests/test_dedupe.py tests/test_hyde.py
 
-  graph-stores:
-    # The knowledge-graph tests against a real Neo4j as well as NetworkX.
+  external-stores:
+    # The server-backed options, against real servers: Neo4j for the knowledge graph and
+    # Redis for rate-limit counters shared between processes.
     runs-on: ubuntu-latest
     services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s
+          --health-retries 10
       neo4j:
         image: neo4j:5
         env:
@@ -64,6 +72,7 @@ jobs:
       NEO4J_URI: bolt://localhost:7687
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: veritas-ci-password
+      REDIS_URL: redis://localhost:6379/0
     defaults:
       run:
         working-directory: backend
@@ -75,8 +84,8 @@ jobs:
           version: "0.12.23"
       - name: Install dependencies
         run: uv sync
-      - name: Graph store parity (NetworkX and Neo4j)
-        run: uv run pytest --no-cov tests/test_graph_store_parity.py -rs
+      - name: Graph store parity (NetworkX and Neo4j) and shared rate limits (Redis)
+        run: uv run pytest --no-cov tests/test_graph_store_parity.py tests/test_guardrails_rate_limit.py -rs
 
   redteam:
     runs-on: ubuntu-latest

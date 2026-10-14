@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
@@ -16,6 +16,7 @@ from app.core import jobs
 from app.core.db import session_scope
 from app.core.errors import AppError
 from app.graphrag.service import build_graph_for_document
+from app.guardrails.rate_limit import limit_client
 from app.ingestion import service as ingestion_service
 from app.ingestion.models import Document
 from app.profiler import service as profiler_service
@@ -154,7 +155,11 @@ async def set_default(body: DefaultRequest) -> StrategiesResponse:
     return await strategies()
 
 
-@router.post("/rag/strategies/{strategy_id}/prepare", response_model=StartedJob)
+@router.post(
+    "/rag/strategies/{strategy_id}/prepare",
+    response_model=StartedJob,
+    dependencies=[Depends(limit_client("comparison"))],
+)
 async def prepare_strategy(strategy_id: str, body: PrepareRequest) -> StartedJob:
     """Builds what a strategy is missing for a document (its index variant, or the knowledge
     graph) as a background job with real progress."""
@@ -341,7 +346,9 @@ async def compare_estimate(body: CompareRequest) -> dict:
         raise AppError(exc.code, exc.message, 422) from exc
 
 
-@router.post("/rag/compare", response_model=StartedJob)
+@router.post(
+    "/rag/compare", response_model=StartedJob, dependencies=[Depends(limit_client("comparison"))]
+)
 async def start_comparison(body: CompareRequest) -> StartedJob:
     """Starts the comparison as a background job; its result carries `comparison_id`."""
     await _document(body.document_id)
@@ -416,7 +423,11 @@ async def set_document_strategy(document_id: str, body: DocumentStrategyRequest)
     return {"document_id": document_id, "strategy": strategy, "source": source}
 
 
-@router.post("/documents/{document_id}/measure", response_model=StartedJob)
+@router.post(
+    "/documents/{document_id}/measure",
+    response_model=StartedJob,
+    dependencies=[Depends(limit_client("comparison"))],
+)
 async def measure_document(document_id: str) -> StartedJob:
     """Measures the main strategies on this document now and adopts the best, as happens
     automatically after upload. A background job; the result carries the ranking."""

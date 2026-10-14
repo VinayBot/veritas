@@ -112,6 +112,14 @@ async def _db_schema() -> None:
     await init_db()
 
 
+@pytest.fixture(autouse=True)
+def _fresh_rate_limits() -> None:
+    # Counters are per process; without this, one test's requests count against the next.
+    from app.guardrails import rate_limit
+
+    rate_limit.clear()
+
+
 @pytest.fixture
 async def client() -> AsyncGenerator[AsyncClient]:
     transport = ASGITransport(app=app)

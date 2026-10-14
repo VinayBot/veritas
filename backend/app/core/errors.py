@@ -27,7 +27,11 @@ async def app_error_handler(request: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, AppError)
     trace_id = getattr(request.state, "trace_id", str(uuid.uuid4()))
     envelope = ErrorEnvelope(code=exc.code, message=exc.message, trace_id=trace_id)
-    return JSONResponse(status_code=exc.status_code, content=envelope.model_dump())
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=envelope.model_dump(),
+        headers=getattr(exc, "headers", None),
+    )
 
 
 async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:

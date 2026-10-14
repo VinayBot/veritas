@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.api.schemas.evaluation import (
     BenchmarkRunListResponse,
@@ -18,6 +18,7 @@ from app.core.errors import AppError
 from app.evaluation import service
 from app.evaluation.datasets import load_dataset
 from app.evaluation.models import BenchmarkRun
+from app.guardrails.rate_limit import limit_client
 from app.rag_engines.registry import UnknownStrategyError, get_strategy
 
 router = APIRouter(tags=["evaluation"])
@@ -86,7 +87,11 @@ async def list_datasets_route(document_id: str) -> DatasetListResponse:
     return DatasetListResponse(datasets=[DatasetOut.model_validate(r) for r in rows])
 
 
-@router.post("/eval/benchmarks/run", response_model=BenchmarkRunResponse)
+@router.post(
+    "/eval/benchmarks/run",
+    response_model=BenchmarkRunResponse,
+    dependencies=[Depends(limit_client("evaluation"))],
+)
 async def run_benchmark_route(body: RunBenchmarkRequest) -> BenchmarkRunResponse:
     """Runs to completion before answering. For scripts and tests; the UI uses /start."""
     _validate_strategies(body.configs)
@@ -103,7 +108,11 @@ async def run_benchmark_route(body: RunBenchmarkRequest) -> BenchmarkRunResponse
     return benchmark_run_response(run)
 
 
-@router.post("/eval/benchmarks/start", response_model=StartedJob)
+@router.post(
+    "/eval/benchmarks/start",
+    response_model=StartedJob,
+    dependencies=[Depends(limit_client("evaluation"))],
+)
 async def start_benchmark_route(body: RunBenchmarkRequest) -> StartedJob:
     """Starts the run as a background job. Follow it at /jobs/{job_id}/stream; its result
     carries the benchmark run id."""

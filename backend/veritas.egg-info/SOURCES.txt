@@ -184,6 +184,7 @@ tests/test_answer_style.py
 tests/test_architecture_api.py
 tests/test_audit_api.py
 tests/test_chat_api.py
+tests/test_chunk_text_fidelity.py
 tests/test_chunking.py
 tests/test_citations.py
 tests/test_compression.py
@@ -198,6 +199,7 @@ tests/test_evaluation_api.py
 tests/test_evaluation_benchmark.py
 tests/test_graph_api.py
 tests/test_graph_store.py
+tests/test_graph_store_parity.py
 tests/test_graphrag_extractor.py
 tests/test_graphrag_extractor_parse.py
 tests/test_graphrag_resolver.py
@@ -218,6 +220,7 @@ tests/test_ingestion_service.py
 tests/test_jobs.py
 tests/test_model_router.py
 tests/test_models_api.py
+tests/test_parsers_formats.py
 tests/test_pii.py
 tests/test_profiler_api.py
 tests/test_profiler_features.py

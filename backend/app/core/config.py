@@ -107,6 +107,10 @@ class Settings(BaseSettings):
 
     # --- Guardrails / rate limiting ---
     rate_limit_per_minute: int = Field(default=60, alias="RATE_LIMIT_PER_MINUTE")
+    # Per client address, on the endpoints that start model work; 0 turns it off.
+    client_rate_limit_per_minute: int = Field(default=60, alias="CLIENT_RATE_LIMIT_PER_MINUTE")
+    # Only behind a reverse proxy that sets X-Forwarded-For; otherwise a client could forge it.
+    trust_forwarded_for: bool = Field(default=False, alias="TRUST_FORWARDED_FOR")
 
     # --- Chat run reliability (Fix 1) ---
     # 150s/60s (this project's own suggested starting point) measured too tight on live local

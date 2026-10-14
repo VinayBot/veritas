@@ -4149,6 +4149,7 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "qdrant-client" },
+    { name = "redis" },
     { name = "reportlab" },
     { name = "ruff" },
 ]
@@ -4202,6 +4203,7 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=0.24" },
     { name = "pytest-cov", specifier = ">=5.0" },
     { name = "qdrant-client", specifier = ">=1.11" },
+    { name = "redis", specifier = ">=5.0" },
     { name = "reportlab", specifier = ">=5.0.1" },
     { name = "ruff", specifier = ">=0.6" },
 ]
