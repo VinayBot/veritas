@@ -28,12 +28,18 @@ listed, with size and whether one is loaded. A warning appears if the selection 
 the machine's memory tier. "More model settings" opens judge, council, embedding and reranker
 choices; changing the embedding model marks the index stale and offers a re-index.
 
-**Recommendation.** After ingestion the panel on the right recommends a strategy for this
-document, with the measurements behind it ("How was this decided?" shows every rule).
-**Use this strategy** makes it the default. Then **Measure the improvement** runs the previous
-and the recommended strategy on the same questions with known answers and shows the measured
-before → after for faithfulness, relevance, correctness, recall and speed. It never shows a
-gain that was not measured.
+**Best strategy, picked automatically.** After an upload, once the graph has been read, the
+app writes five questions with known answers from the document and runs Hybrid, Hybrid +
+Rerank and GraphRAG (where available) on them — usually one to two minutes, in the
+background, always after your own questions. The highest combined quality score (0–1:
+faithfulness, relevance, correctness and ranking) becomes the strategy that answers this
+document. The card on the right shows the winner with its score and every measured
+strategy's score; until the measurement finishes it shows a prediction from the document's
+shape, marked "not measured yet". **Compare for details** shows the answers side by side
+question by question; **Re-measure** runs it again. Picking a strategy for the document
+yourself (the card, the strategy picker, or "Adopt" in a comparison) sticks: automatic
+measurement never overrides your choice. Five questions is a small sample and the card says
+so.
 
 **History.** Conversations are kept per document in the browser, so a reload or coming back
 to an earlier document (document switcher, top right, which lists every ingested file) shows

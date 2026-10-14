@@ -110,7 +110,7 @@ async def set_document_strategy(document_id: str, strategy: str | None) -> None:
     await _update(document_id, preferred_strategy=strategy, strategy_source="chosen")
 
 
-async def auto_measure(document_id: str) -> dict[str, Any] | None:
+async def auto_measure(document_id: str, *, requested: bool = False) -> dict[str, Any] | None:
     """Measures the candidate strategies that can run on this document and makes the best
     one the document's strategy, unless the user has already chosen one. Returns the
     evidence it decided on, or None when there was nothing to compare."""
@@ -119,7 +119,11 @@ async def auto_measure(document_id: str) -> dict[str, Any] | None:
     from app.llm import client as llm_client
     from app.rag_engines import availability, compare, evidence
 
-    llm_client.mark_background(llm_client.HOUSEKEEPING)
+    # After an upload this is housekeeping and yields to everything. When the user asked for
+    # it (the Re-measure button, which runs it as a job) it keeps the job's priority: as
+    # housekeeping it would wait on every model call for the very job it is running in.
+    if not requested:
+        llm_client.mark_background(llm_client.HOUSEKEEPING)
     await _update(document_id, measure_status="queued", measure_error=None)
     async with _measure_slot():  # one at a time, newest upload first
         await _update(document_id, measure_status="running")
@@ -176,3 +180,19 @@ async def auto_measure(document_id: str) -> dict[str, Any] | None:
 
 def auto_measure_enabled() -> bool:
     return get_settings().auto_measure_enabled
+
+
+async def reconcile_interrupted_measurements() -> int:
+    """Run once at startup. A measurement is an in-memory task; one that was queued or running
+    when the server stopped will never finish, and its document would show "measuring" for
+    ever. They are marked as interrupted so the card offers to measure again."""
+    from sqlalchemy import update
+
+    async with session_scope() as session:
+        result = await session.execute(
+            update(Document)
+            .where(Document.measure_status.in_(("queued", "running")))
+            .values(measure_status="failed", measure_error="Interrupted by a server restart.")
+        )
+        await session.commit()
+    return result.rowcount or 0

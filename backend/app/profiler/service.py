@@ -13,6 +13,7 @@ docs/DECISIONS.md, not silently faked as "no gain found."
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -102,6 +103,21 @@ def candidate_result_out(result: CandidateResult) -> dict[str, Any]:
     return {**_candidate_config_dict(result), **_candidate_metrics_dict(result)}
 
 
+# Profiles are recomputed only when what they measure changes: the text, or the document's
+# part of the knowledge graph (relation density reads it). The recommendation card asks on
+# every load, and recomputing meant a model call that queued behind background work.
+_profile_cache: dict[tuple[str, str, int, int], DocumentProfile] = {}
+_PROFILE_CACHE_MAX = 256
+
+
+def _profile_key(document_id: str, text: str) -> tuple[str, str, int, int]:
+    from app.stores.graph.networkx_store import get_graph_store
+
+    graph = get_graph_store().to_json(doc_id=document_id)
+    digest = hashlib.sha1(text.encode("utf-8", "ignore")).hexdigest()
+    return (document_id, digest, len(graph["nodes"]), len(graph["edges"]))
+
+
 async def profile(
     document_id: str,
     text: str,
@@ -109,7 +125,15 @@ async def profile(
     ocr_confidence: float | None,
     page_count: int | None = None,
 ) -> DocumentProfile:
-    return await profile_document(document_id, text, language, ocr_confidence, page_count)
+    key = _profile_key(document_id, text)
+    cached = _profile_cache.get(key)
+    if cached is not None:
+        return cached
+    result = await profile_document(document_id, text, language, ocr_confidence, page_count)
+    if len(_profile_cache) >= _PROFILE_CACHE_MAX:
+        _profile_cache.pop(next(iter(_profile_cache)))
+    _profile_cache[key] = result
+    return result
 
 
 async def run_advisor(

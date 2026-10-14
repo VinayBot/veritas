@@ -415,7 +415,7 @@ async def measure_document(document_id: str) -> StartedJob:
 
     async def work(ctx: jobs.JobContext) -> dict:
         await ctx.progress(0.05, "Measuring strategies on this document")
-        measured = await document_strategy.auto_measure(document_id)
+        measured = await document_strategy.auto_measure(document_id, requested=True)
         return {"measured": measured}
 
     jobs.launch(job.id, work)

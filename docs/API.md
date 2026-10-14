@@ -459,3 +459,11 @@ All under `/api/v1`. Long-running work returns `{ "job_id": ... }`; follow it at
 | `GET /documents`, `DELETE /documents/{id}`, `POST /documents/sample` | Corpus listing, deletion, bundled sample. |
 
 Removed: `/test-center/*`.
+
+| `PUT /documents/{id}/strategy` | The strategy this document is answered with; `null` hands it back to automatic measurement. |
+| `POST /documents/{id}/measure` | Measure the main strategies on the document now and adopt the best (a job). |
+
+`GET /documents/{id}` adds `preferred_strategy`, `strategy_source` (`measured` / `chosen`),
+`measure_status` and `measure_error`. `GET /documents/{id}/recommendation` adds `basis`
+(`measured` / `rules`), `measured` (ranking with scores, n), `rule_recommended`,
+`strategy_source`, `measure_status` and `auto_measure`.

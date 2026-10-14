@@ -39,6 +39,7 @@ from app.core.logging import configure_logging
 from app.core.preflight import PreflightReport, run_preflight
 from app.ingestion.service import reconcile_interrupted_jobs
 from app.llm.models_catalog import reconcile_selection
+from app.rag_engines import document_strategy
 from app.stores.bm25 import rebuild_bm25_index
 
 settings = get_settings()
@@ -57,6 +58,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if dropped:
         logger.warning("Saved model choices no longer installed were reset: %s", dropped)
 
+    interrupted = await document_strategy.reconcile_interrupted_measurements()
+    if interrupted:
+        logger.warning("Marked %d interrupted strategy measurement(s) for re-running", interrupted)
     reconciled = await reconcile_interrupted_jobs()
     if reconciled:
         logger.warning(

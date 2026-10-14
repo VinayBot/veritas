@@ -119,3 +119,34 @@ async def test_waiting_measurements_run_newest_first() -> None:
     release.set()
     await asyncio.gather(running, older, newer)
     assert order == ["first", "newer", "older"]
+
+
+async def test_a_requested_measurement_keeps_the_jobs_priority(monkeypatch) -> None:
+    """Run from the Re-measure button (a job), the measurement must not demote itself to
+    housekeeping: housekeeping waits while any job runs, including its own."""
+    from app.llm import client as llm_client
+
+    levels: list[int] = []
+
+    async def fake_update(document_id, **fields):  # noqa: ANN001, ANN003, ARG001
+        levels.append(llm_client._level.get())
+        raise RuntimeError("stop here")
+
+    monkeypatch.setattr(document_strategy, "_update", fake_update)
+    llm_client.mark_background(llm_client.FOREGROUND)
+    with pytest.raises(RuntimeError):
+        await document_strategy.auto_measure("doc", requested=True)
+    with pytest.raises(RuntimeError):
+        await document_strategy.auto_measure("doc")
+    assert levels == [llm_client.FOREGROUND, llm_client.HOUSEKEEPING]
+
+
+async def test_measurements_cut_off_by_a_restart_are_marked_for_rerunning(
+    client: AsyncClient,
+) -> None:
+    document_id = await _upload(client)
+    await document_strategy._update(document_id, measure_status="running")
+    assert await document_strategy.reconcile_interrupted_measurements() >= 1
+    doc = (await client.get(f"/api/v1/documents/{document_id}")).json()
+    assert doc["measure_status"] == "failed"
+    assert "restart" in doc["measure_error"]

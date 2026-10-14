@@ -1371,3 +1371,30 @@ whose edge is not rendered yet is retried every 250 ms while the event is still 
 
 **No hover movement on diagram nodes.** Moving an element under the pointer ends its own
 hover; the result was a flicker loop. Hover feedback on nodes is opacity only.
+
+
+## Measured beats predicted: each document is answered with its measured best
+
+Reported by the owner: the card recommended GraphRAG for a document on which a comparison
+showed Hybrid ahead. The recommendation came only from fixed rules over the document's shape
+(many entities → GraphRAG). Measured on that document, five strategies scored Hybrid 0.92,
+Hybrid + Rerank 0.89, GraphRAG 0.65, Naive 0.61, over four questions.
+
+- **After upload, the document is measured.** Once enrichment finishes, Hybrid, Hybrid +
+  Rerank and GraphRAG (when its graph has relations) run on five generated questions
+  (`rag_engines/document_strategy.auto_measure`). The highest combined score — the same
+  composite a comparison uses — becomes `Document.preferred_strategy`. It runs as
+  housekeeping (behind chat and jobs), one at a time, newest upload first, and has its own
+  `measure_status`, so "ready" and "enriched" never wait for it. Off under tests unless a
+  test turns it on (`AUTO_MEASURE_ON_INGEST`).
+- **Strategies became per document.** A question that names none is answered with the
+  document's strategy; the workspace default only applies to documents without one. A
+  strategy the user picks for a document ("chosen") is never replaced by measurement.
+- **The recommendation follows measurement** whenever any question-set run exists for the
+  document (`rag_engines/evidence.py`); the rules' prediction is shown only before that,
+  labelled as unmeasured, and is named in the reasons when it lost or was not measured.
+- **Cost:** about a minute or two of background model time per upload. Five questions is a
+  small sample; scores within 0.02 are treated as a tie by comparisons, and the card shows
+  every score rather than only the winner.
+- A Re-measure the user asks for runs at job priority. At housekeeping priority it waited,
+  on every model call, for the job it was itself running in.
