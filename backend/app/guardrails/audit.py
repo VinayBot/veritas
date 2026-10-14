@@ -26,7 +26,7 @@ class AuditLogEntry(Base):
     score: Mapped[float | None] = mapped_column(Float, nullable=True)
     decision: Mapped[str] = mapped_column(String(16))
     redacted_excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 async def record(

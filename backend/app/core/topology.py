@@ -223,7 +223,11 @@ def _cfg_agents() -> dict[str, Any]:
 
 def _cfg_core() -> dict[str, Any]:
     settings = get_settings()
-    return {"hardware_tier": settings.hardware_tier, "database": "sqlite", "env": settings.app_env}
+    return {
+        "hardware_tier": settings.hardware_tier,
+        "database": settings.database_url.split(":", 1)[0].split("+", 1)[0],
+        "env": settings.app_env,
+    }
 
 
 def _neo4j_optional() -> str | None:

@@ -87,6 +87,36 @@ jobs:
       - name: Graph store parity (NetworkX and Neo4j) and shared rate limits (Redis)
         run: uv run pytest --no-cov tests/test_graph_store_parity.py tests/test_guardrails_rate_limit.py -rs
 
+  postgres:
+    # The whole backend suite again with PostgreSQL as the application database.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: veritas-ci
+          POSTGRES_DB: veritas_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql+asyncpg://postgres:veritas-ci@localhost:5432/veritas_test
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.12.23"
+      - name: Install dependencies
+        run: uv sync
+      - name: pytest on PostgreSQL
+        run: uv run pytest --no-cov -q
+
   redteam:
     runs-on: ubuntu-latest
     defaults:

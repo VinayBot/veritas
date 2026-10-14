@@ -37,6 +37,20 @@ services:
     volumes:
       - qdrant-data:/qdrant/storage
 
+  # --- profile: postgres --- (alternative to the default SQLite application database;
+  # set DATABASE_URL=postgresql+asyncpg://veritas:veritas@postgres:5432/veritas)
+  postgres:
+    image: postgres:16
+    profiles: ["postgres"]
+    environment:
+      - POSTGRES_USER=veritas
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-veritas}
+      - POSTGRES_DB=veritas
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
   # --- profile: neo4j --- (alternative to the default in-process NetworkX graph store)
   neo4j:
     image: neo4j:5.24
@@ -70,6 +84,7 @@ services:
 
 volumes:
   backend-var:
+  postgres-data:
   qdrant-data:
   neo4j-data:
   redis-data:

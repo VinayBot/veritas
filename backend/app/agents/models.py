@@ -53,7 +53,7 @@ class ChatReport(Base):
     quality: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     council_run_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     routing: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     # Everything below was added with the strategy registry and is NULL on older rows.
     # `mode` above holds the same id as `strategy` for new rows; for old rows it holds the
     # legacy mode name (see app/rag_engines/registry.py: strategy_for_report).
@@ -85,8 +85,8 @@ class ChatRun(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     report_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     attempt: Mapped[int] = mapped_column(Integer, default=1)
-    created_at: Mapped[datetime] = mapped_column(DateTime)
-    updated_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class ChatRunEvent(Base):
@@ -101,4 +101,4 @@ class ChatRunEvent(Base):
     seq: Mapped[int] = mapped_column(Integer)
     event: Mapped[str] = mapped_column(String(32))
     data: Mapped[Any] = mapped_column(JSON)
-    created_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

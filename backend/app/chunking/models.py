@@ -29,4 +29,4 @@ class ChunkRow(Base):
     # variant alongside it — see app/rag_engines/variants.py.
     variant: Mapped[str] = mapped_column(String(32), default="default", index=True)
     extra: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

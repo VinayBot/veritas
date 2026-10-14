@@ -34,7 +34,7 @@ class RuntimeSetting(Base):
 
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[Any] = mapped_column(JSON)
-    updated_at: Mapped[datetime] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 _cache: dict[str, Any] = {}

@@ -21,7 +21,7 @@ class PiiVaultEntry(Base):
     entity_type: Mapped[str] = mapped_column(String(64))
     ciphertext: Mapped[bytes] = mapped_column(LargeBinary)
     document_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class PiiRevealEvent(Base):
@@ -30,4 +30,4 @@ class PiiRevealEvent(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     token: Mapped[str] = mapped_column(String(64))
     session_id: Mapped[str] = mapped_column(String(64))
-    revealed_at: Mapped[datetime] = mapped_column(DateTime)
+    revealed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

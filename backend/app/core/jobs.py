@@ -46,8 +46,8 @@ class Job(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     progress: Mapped[float] = mapped_column(Float, default=0.0)
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime)
-    updated_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class JobEvent(Base):
@@ -58,7 +58,7 @@ class JobEvent(Base):
     seq: Mapped[int] = mapped_column(Integer)
     event: Mapped[str] = mapped_column(String(32))
     data: Mapped[Any] = mapped_column(JSON)
-    created_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class JobCancelled(Exception):

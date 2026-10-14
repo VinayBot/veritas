@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 
@@ -39,10 +40,17 @@ def _make_engine() -> AsyncEngine:
     # event loop first touches it, which breaks the moment a *different* loop uses it; fine
     # for a server's one long-lived loop, but it broke immediately under pytest-asyncio's
     # fresh loop per test function, so it's deliberately not used.)
+    # PostgreSQL (asyncpg): pooled connections belong to the event loop that opened them. A
+    # server has one loop; pytest-asyncio starts a new one per test, so under tests each
+    # session opens its own connection instead of reusing one from another loop.
+    extra: dict = {}
+    if not is_sqlite and settings.app_env == "test":
+        extra["poolclass"] = NullPool
     engine = create_async_engine(
         settings.database_url,
         echo=False,
-        pool_pre_ping=is_sqlite,
+        pool_pre_ping=True,
+        **extra,
     )
 
     if is_sqlite:

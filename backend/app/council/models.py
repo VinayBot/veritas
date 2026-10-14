@@ -25,4 +25,4 @@ class CouncilRun(Base):
     peer_reviews: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
     agreement_score: Mapped[float] = mapped_column(Float)
     final_answer: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
