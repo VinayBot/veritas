@@ -94,7 +94,7 @@ export function AnswerText({
               <mark
                 tabIndex={0}
                 data-testid="unsupported-sentence"
-                className="cursor-help rounded-sm bg-danger/15 text-foreground underline decoration-danger decoration-wavy underline-offset-4"
+                className="cursor-help text-foreground underline decoration-warning/70 decoration-dotted decoration-2 underline-offset-4"
               >
                 {withCitations(segment.text, citations, hoveredChunk, onHoverChunk, `u${i}`)}
               </mark>

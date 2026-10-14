@@ -264,3 +264,14 @@ Architecture canvas has a drifting blueprint grid and a scan line that sweeps on
 a view change and when a walkthrough starts; the walkthrough sends a three-packet stream per
 hop; nodes lift on hover. All of it is decoration except the caret (real streaming) and the
 status halo (a probe that really returned healthy).
+
+## Professional polish (final pass)
+
+The accent colour is now reserved for primary actions (send, run, use this strategy) and
+small cues (the active tab's underline and icon). Selected states — navigation, Evaluation
+views, segmented controls, the theme switch — are a raised neutral chip instead of a crimson
+fill. The landing headline is plain text (the moving gradient was removed), the user's chat
+bubble is a tinted outline instead of a solid red block, Deep reasoning no longer pulses when
+on, an unsupported sentence is marked with a quiet dotted amber underline instead of a red
+wave, and the Architecture backdrop, card glow and header light band were made fainter. All
+other motion is unchanged.

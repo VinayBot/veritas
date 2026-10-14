@@ -156,7 +156,7 @@ export function AppShell() {
                     <motion.span
                       layoutId="nav-pill"
                       aria-hidden="true"
-                      className="absolute inset-0 rounded-lg bg-accent/20 shadow-[inset_0_-2px_0_var(--color-accent)]"
+                      className="absolute inset-0 rounded-lg bg-surface-raised shadow-[inset_0_-2px_0_var(--color-accent)] ring-1 ring-border"
                       transition={reduced ? { duration: 0 } : SPRING_SOFT}
                     />
                   )}

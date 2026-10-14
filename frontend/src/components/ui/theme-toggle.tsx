@@ -31,7 +31,7 @@ export function ThemeToggle({ className }: { className?: string }) {
       />
       <motion.span
         aria-hidden="true"
-        className="relative z-10 flex size-6 items-center justify-center rounded-full bg-accent text-on-accent shadow-sm"
+        className="relative z-10 flex size-6 items-center justify-center rounded-full bg-foreground text-background shadow-sm"
         animate={{ x: isLight ? 24 : 0 }}
         transition={reducedTransition(!!reduced, SPRING)}
       >

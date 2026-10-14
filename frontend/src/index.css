@@ -174,11 +174,11 @@ body {
 }
 .lacquer-card:hover,
 .lacquer-card:focus-within {
-  transform: translateY(-3px);
+  transform: translateY(-2px);
 }
 .lacquer-card:hover::before,
 .lacquer-card:focus-within::before {
-  opacity: 0.28;
+  opacity: 0.14;
 }
 
 /* ---- Architecture diagram ---- */
@@ -224,7 +224,7 @@ body {
   aspect-ratio: 1;
   border-radius: 999px;
   filter: blur(90px);
-  opacity: 0.16;
+  opacity: 0.08;
   will-change: transform;
 }
 .aurora > span:first-child {
@@ -335,7 +335,7 @@ body {
   position: absolute;
   inset: -40px;
   pointer-events: none;
-  opacity: 0.22;
+  opacity: 0.14;
   background-image:
     linear-gradient(to right, var(--color-border) 1px, transparent 1px),
     linear-gradient(to bottom, var(--color-border) 1px, transparent 1px);
@@ -406,7 +406,7 @@ body {
   background-size: 50% 100%;
   background-repeat: no-repeat;
   animation: header-flow 7s linear infinite;
-  opacity: 0.8;
+  opacity: 0.45;
 }
 @keyframes header-flow {
   from {

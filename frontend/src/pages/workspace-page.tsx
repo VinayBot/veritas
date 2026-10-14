@@ -401,9 +401,9 @@ export function WorkspacePage() {
             />
           ))}
         </div>
-        <AnalystBot state={uploading ? 'working' : 'idle'} size={200} />
+        <AnalystBot state={uploading ? 'working' : 'idle'} size={150} />
         <div className="max-w-xl text-center">
-          <h1 className="text-shimmer font-display text-3xl font-semibold tracking-tight">Ask your documents. See exactly how the answer was found.</h1>
+          <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground">Ask your documents. See exactly how the answer was found.</h1>
           <p className="mt-3 text-sm text-muted-foreground">
             Upload a document and Veritas ingests it, recommends how to search it, and answers with citations you can check.
           </p>
@@ -642,7 +642,7 @@ export function WorkspacePage() {
               title="Off: a quick answer of 3–4 lines. On: a fuller answer of 7–8 lines, which takes a little longer."
               className={cn(
                 'flex items-center gap-1.5 rounded-pill border px-3 py-1 text-xs font-medium transition-colors duration-micro',
-                detailMode === 'deep' ? 'glow-pulse border-accent bg-accent text-on-accent shadow-glow' : 'border-border text-muted-foreground hover:border-accent/50 hover:text-foreground',
+                detailMode === 'deep' ? 'border-accent/60 bg-accent/15 text-foreground' : 'border-border text-muted-foreground hover:border-accent/50 hover:text-foreground',
               )}
             >
               <Brain className="size-3.5" aria-hidden="true" /> Deep reasoning
@@ -792,7 +792,7 @@ function MessageBubble({
   if (message.role === 'user') {
     return (
       <div className="flex justify-end">
-        <div className="pop-in max-w-[85%] rounded-2xl rounded-br-md bg-accent px-3.5 py-2.5 text-sm whitespace-pre-wrap text-on-accent">{message.content}</div>
+        <div className="pop-in max-w-[85%] rounded-2xl rounded-br-md border border-accent/25 bg-accent/12 px-3.5 py-2.5 text-sm whitespace-pre-wrap text-foreground">{message.content}</div>
       </div>
     )
   }
@@ -811,7 +811,7 @@ function MessageBubble({
       <div
         className={cn(
           'max-w-[88%] rounded-2xl rounded-bl-md border px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap text-foreground',
-          message.errored ? 'border-danger/40 bg-danger/10' : selected ? 'border-accent/50 bg-surface-raised' : 'border-border bg-surface-raised',
+          message.errored ? 'border-danger/40 bg-danger/10' : selected ? 'border-foreground/25 bg-surface-raised' : 'border-border bg-surface-raised',
         )}
       >
         {waiting ? (

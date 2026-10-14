@@ -59,18 +59,18 @@ export function EvaluationPage() {
               onClick={() => setView(v.id)}
               className={cn(
                 'relative flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors duration-micro',
-                active ? 'text-on-accent' : 'text-muted-foreground hover:text-foreground',
+                active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
               )}
             >
               {active && (
                 <motion.span
                   layoutId="eval-tab-pill"
-                  className="absolute inset-0 rounded-lg bg-accent shadow-glow"
+                  className="absolute inset-0 rounded-lg bg-surface-raised shadow-sm ring-1 ring-border"
                   transition={reduced ? { duration: 0 } : SPRING_SOFT}
                   aria-hidden="true"
                 />
               )}
-              <v.icon className="relative size-4" aria-hidden="true" />
+              <v.icon className={cn('relative size-4', active && 'text-accent')} aria-hidden="true" />
               <span className="relative">{v.label}</span>
             </button>
           )
