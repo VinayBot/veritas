@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 
+from app.agents.citations import citation_markers
 from app.llm.client import LlmUnavailableError, complete
 from app.llm.models_config import get_model_config
 
@@ -41,8 +42,6 @@ _ABSTENTION_PHRASES = (
     "cannot help with that",
     "not enough reliably",
 )
-
-_CITATION_MARKER_RE = re.compile(r"\[(\d+)\]")
 
 
 def judge_model() -> str:
@@ -149,7 +148,7 @@ def citation_validity(answer: str, num_context_items: int) -> float:
     """Fraction of [n] markers in the answer that reference a real context item — a real,
     deterministic check (not LLM-judged): catches a model inventing citation numbers beyond
     what was actually retrieved."""
-    markers = [int(m) for m in _CITATION_MARKER_RE.findall(answer)]
+    markers = citation_markers(answer)
     if not markers:
         return 1.0  # no citations to be invalid — mandatory-citations is a separate concern
     valid = sum(1 for m in markers if 1 <= m <= num_context_items)

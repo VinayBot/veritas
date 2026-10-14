@@ -1398,3 +1398,18 @@ Hybrid + Rerank 0.89, GraphRAG 0.65, Naive 0.61, over four questions.
   every score rather than only the winner.
 - A Re-measure the user asks for runs at job priority. At housekeeping priority it waited,
   on every model call, for the job it was itself running in.
+
+
+## Lighter answer model; unsupported sentences shown as a red underline only
+
+The owner's machine was struggling. Measured with `ps`: `gemma3:4b` held 3.8 GB and the guard
+model 1.5 GB. `gemma3:4b` was removed at the owner's request and `llama3.2:3b` (2.1 GB
+resident) is the answer model again; free memory went from 37% to 45%, and quick answers
+took 4–6 s on it. `llama3.2:3b` follows length and citation instructions less reliably than
+`gemma3:4b` did (it more often leaves out citation markers); the sentence trim in
+`tidy_answer` still bounds the length. Idle models are now unloaded after 5 minutes.
+
+Answers are made readable: an unsupported sentence is marked only by a red underline (the
+`<mark>` element had fallen back to the browser's yellow background), grouped citations such
+as "[7, 8]" are read as two citations everywhere (`agents/citations.py`), and masked personal
+data like `<PERSON_c5e7f7>` is shown as a small "person" tag.

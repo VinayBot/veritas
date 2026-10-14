@@ -84,8 +84,8 @@ a line. Every control is reachable with Tab; reduced-motion preferences are resp
 
 ## Memory and speed on a 16 GB laptop
 
-Only two models stay in memory: the answer model and the small safety model. Any other
-model (a council member, a separately chosen judge) is unloaded as soon as it has replied. Lighter:
-`DEFAULT_LLM_MODEL=ollama/llama3.2:3b`. Better at following length and citation instructions:
-`ollama/gemma3:4b`. Larger models are only loaded if you pick them. See
-`docs/TROUBLESHOOTING.md` if answers are slow.
+Only two models stay in memory: the answer model `llama3.2:3b` (about 2.3 GB) and the small
+safety model (about 1.7 GB). Any other model (a council member, a separately chosen judge) is
+unloaded as soon as it has replied, and idle models are unloaded after five minutes
+(`OLLAMA_KEEP_ALIVE`). `gemma3:4b` was removed because it alone held 3.8 GB; larger models are
+only loaded if you install and pick them. See `docs/TROUBLESHOOTING.md` if answers are slow.

@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -34,6 +33,7 @@ from typing import Any, cast
 from sqlalchemy import select
 
 from app.agents.answer_style import resolve_detail, style_for, tidy_answer
+from app.agents.citations import citation_markers
 from app.agents.context_utils import UNTRUSTED_CONTEXT_SYSTEM_PROMPT, build_numbered_context
 from app.agents.graph import get_agent_graph
 from app.agents.guardian import guardian_out_node
@@ -67,7 +67,6 @@ from app.retrieval.index_guard import IndexMismatchError, assert_index_current
 
 logger = logging.getLogger(__name__)
 
-_CITATION_MARKER_RE = re.compile(r"\[(\d+)\]")
 
 _DIRECT_SYNTH_PROMPT = (
     "Answer the question using ONLY the numbered context below. Cite sources inline using "
@@ -115,7 +114,7 @@ class Turn:
 
 
 def _citations_from(answer: str, hits: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    cited = {int(m) for m in _CITATION_MARKER_RE.findall(answer)}
+    cited = set(citation_markers(answer))
     if not cited and len(hits) == 1:
         cited = {1}  # unambiguous single-source case — see synthesizer.py / docs/DECISIONS.md
     return [

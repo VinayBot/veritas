@@ -28,9 +28,8 @@ is actually cheaper than the attempt that just timed out, not a second shot at t
 
 from __future__ import annotations
 
-import re
-
 from app.agents.answer_style import style_for
+from app.agents.citations import citation_markers
 from app.agents.context_utils import build_numbered_context
 from app.agents.state import AgentState, Citation, record_step
 from app.agents.tools import hit_to_dict
@@ -39,8 +38,6 @@ from app.guardrails.retrieval import scan_hits
 from app.llm.client import LlmUnavailableError, complete
 from app.llm.models_config import get_model_config
 from app.retrieval import service as retrieval_service
-
-_CITATION_MARKER_RE = re.compile(r"\[(\d+)\]")
 
 _WIDE_K = 8
 _FAST_K = 5
@@ -134,7 +131,7 @@ async def summarizer_node(state: AgentState) -> dict:
         h.set_metric("force_fast", force_fast)
         h.set_output(answer[:200])
 
-    cited_markers = {int(m) for m in _CITATION_MARKER_RE.findall(answer)}
+    cited_markers = set(citation_markers(answer))
     citations: list[Citation] = [
         Citation(marker=i + 1, chunk_id=hit["chunk_id"], text=hit["text"][:300])
         for i, hit in enumerate(hits)

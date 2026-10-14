@@ -27,7 +27,7 @@ VERIFY_PROMPT = (
 )
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
-_CITATION_RE = re.compile(r"\[\d+\]")
+_CITATION_RE = re.compile(r"\[\d+(?:\s*,\s*\d+)*\]")
 
 
 def _words(text: str) -> set[str]:

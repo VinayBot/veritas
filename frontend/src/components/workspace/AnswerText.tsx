@@ -30,6 +30,44 @@ export function segmentAnswer(content: string, grounding: GroundingReport | null
   return segments.filter((s) => s.text.length > 0)
 }
 
+// Personal data is replaced at upload by tokens like <PERSON_c5e7f7>. They are shown as a
+// short labelled tag instead of the raw token, which is hard to read mid-sentence.
+const MASK_RE = /<([A-Z][A-Z_]*?)_([0-9a-f]{6,})>/g
+const MASK_LABEL: Record<string, string> = {
+  PERSON: 'person',
+  EMAIL_ADDRESS: 'email',
+  PHONE_NUMBER: 'phone',
+  LOCATION: 'place',
+  CREDIT_CARD: 'card number',
+  IBAN_CODE: 'bank account',
+  US_SSN: 'ID number',
+}
+
+function withMaskedValues(text: string): ReactNode {
+  if (!text.includes('<')) return text
+  const out: ReactNode[] = []
+  let last = 0
+  for (const match of text.matchAll(MASK_RE)) {
+    const at = match.index ?? 0
+    if (at > last) out.push(text.slice(last, at))
+    const label = MASK_LABEL[match[1]] ?? match[1].toLowerCase().replace(/_/g, ' ')
+    out.push(
+      <span
+        key={at}
+        data-testid="masked-value"
+        title={`A ${label} from the document, hidden for privacy when it was uploaded (${match[0]}). Turn on Reveal PII to include it in answers.`}
+        className="mx-0.5 inline-flex items-center rounded-sm bg-surface px-1 align-baseline text-[0.85em] text-muted-foreground ring-1 ring-border"
+      >
+        {label}
+      </span>,
+    )
+    last = at + match[0].length
+  }
+  if (last === 0) return text
+  if (last < text.length) out.push(text.slice(last))
+  return out
+}
+
 function withCitations(
   text: string,
   citations: ChatCitation[],
@@ -37,35 +75,47 @@ function withCitations(
   onHover: (chunkId: string | null) => void,
   keyPrefix: string,
 ): ReactNode[] {
-  return text.split(/(\[\d+\])/g).map((part, i) => {
-    const match = /^\[(\d+)\]$/.exec(part)
-    if (!match) return <Fragment key={`${keyPrefix}-${i}`}>{part}</Fragment>
-    const citation = citations.find((c) => c.marker === Number(match[1]))
-    if (!citation) {
-      return (
-        <span key={`${keyPrefix}-${i}`} className="text-danger" title="This marker does not point at any retrieved source.">
-          {part}
-        </span>
-      )
-    }
+  return text.split(/(\[\d+(?:\s*,\s*\d+)*\])/g).map((part, i) => {
+    const group = /^\[(\d+(?:\s*,\s*\d+)*)\]$/.exec(part)
+    if (!group) return <Fragment key={`${keyPrefix}-${i}`}>{withMaskedValues(part)}</Fragment>
+    // "[7, 8]" is two citations; each number gets its own chip.
     return (
-      <button
-        key={`${keyPrefix}-${i}`}
-        type="button"
-        data-testid={`citation-marker-${citation.marker}`}
-        data-chunk={citation.chunk_id}
-        aria-label={`Source ${citation.marker}`}
-        onMouseEnter={() => onHover(citation.chunk_id)}
-        onMouseLeave={() => onHover(null)}
-        onFocus={() => onHover(citation.chunk_id)}
-        onBlur={() => onHover(null)}
-        className={cn(
-          'mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-sm px-1 align-text-top text-[10px] font-semibold tabular-nums transition-colors duration-micro',
-          hoveredChunk === citation.chunk_id ? 'bg-gold text-on-accent' : 'bg-accent/25 text-foreground hover:bg-accent/50',
-        )}
-      >
-        {citation.marker}
-      </button>
+      <Fragment key={`${keyPrefix}-${i}`}>
+        {group[1].split(',').map((raw, j) => {
+          const marker = Number(raw.trim())
+          const citation = citations.find((c) => c.marker === marker)
+          if (!citation) {
+            return (
+              <span
+                key={j}
+                className="mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-sm border border-dashed border-muted-foreground/40 px-1 align-text-top text-[10px] tabular-nums text-muted-foreground"
+                title="This number does not point at any retrieved source."
+              >
+                {marker}
+              </span>
+            )
+          }
+          return (
+            <button
+              key={j}
+              type="button"
+              data-testid={`citation-marker-${citation.marker}`}
+              data-chunk={citation.chunk_id}
+              aria-label={`Source ${citation.marker}`}
+              onMouseEnter={() => onHover(citation.chunk_id)}
+              onMouseLeave={() => onHover(null)}
+              onFocus={() => onHover(citation.chunk_id)}
+              onBlur={() => onHover(null)}
+              className={cn(
+                'mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-sm px-1 align-text-top text-[10px] font-semibold tabular-nums transition-colors duration-micro',
+                hoveredChunk === citation.chunk_id ? 'bg-gold text-on-accent' : 'bg-accent/25 text-foreground hover:bg-accent/50',
+              )}
+            >
+              {citation.marker}
+            </button>
+          )
+        })}
+      </Fragment>
     )
   })
 }
@@ -94,7 +144,7 @@ export function AnswerText({
               <mark
                 tabIndex={0}
                 data-testid="unsupported-sentence"
-                className="cursor-help text-foreground underline decoration-warning/70 decoration-dotted decoration-2 underline-offset-4"
+                className="cursor-help bg-transparent text-inherit underline decoration-danger decoration-solid decoration-2 underline-offset-4"
               >
                 {withCitations(segment.text, citations, hoveredChunk, onHoverChunk, `u${i}`)}
               </mark>

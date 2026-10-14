@@ -5,9 +5,8 @@ instead of a fresh one.
 
 from __future__ import annotations
 
-import re
-
 from app.agents.answer_style import style_for
+from app.agents.citations import citation_markers
 from app.agents.context_utils import UNTRUSTED_CONTEXT_SYSTEM_PROMPT, build_numbered_context
 from app.agents.state import AgentState, Citation, record_step
 from app.core.tracing import trace_bus
@@ -30,8 +29,6 @@ _REVISE_PROMPT = (
     "[n]-style citations for whatever remains supported. If nothing can be supported, say you "
     "don't have enough information. {style}"
 )
-
-_CITATION_MARKER_RE = re.compile(r"\[(\d+)\]")
 
 
 async def synthesizer_node(state: AgentState) -> dict:
@@ -120,7 +117,7 @@ async def synthesizer_node(state: AgentState) -> dict:
         h.set_metric("revision", is_revision)
         h.set_output(answer[:200])
 
-    cited_markers = {int(m) for m in _CITATION_MARKER_RE.findall(answer)}
+    cited_markers = set(citation_markers(answer))
     if not cited_markers and len(retrieved) == 1:
         # The model didn't emit a "[1]" marker, but with exactly one source there's no
         # ambiguity about where the answer came from — see docs/DECISIONS.md on why this

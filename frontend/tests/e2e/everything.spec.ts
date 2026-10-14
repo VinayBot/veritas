@@ -87,7 +87,7 @@ test('Workspace: an answer in progress can be stopped', async ({ page }) => {
 test('Workspace: switching the answer model changes which model answers', async ({ page }) => {
   await openSample(page)
   const before = (await (await page.request.get(`${API}/models/local`)).json()).selection.generator as string
-  const other = before.endsWith('llama3.2:3b') ? 'gemma3:4b' : 'llama3.2:3b'
+  const other = before.endsWith('llama3.2:3b') ? 'gemma2:2b' : 'llama3.2:3b'
   try {
     await page.getByTestId('model-picker').click()
     await page.getByTestId(`model-option-${other}`).click()
