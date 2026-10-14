@@ -106,7 +106,31 @@ def _print_report(report: BenchmarkReport) -> None:
     )
 
 
+def _server_is_running() -> bool:
+    """ChromaDB's embedded mode is not safe for two processes on one data directory: run while
+    the API server is up, this script's writes left the server's in-memory index stale
+    ("Error finding id" on the next question) until the server restarted."""
+    import os
+    import urllib.request
+
+    port = os.environ.get("BACKEND_PORT", "8000")
+    try:
+        with urllib.request.urlopen(f"http://localhost:{port}/api/v1/health", timeout=2):
+            return True
+    except OSError:
+        return False
+
+
 async def main() -> int:
+    import os
+
+    if _server_is_running() and os.environ.get("ALLOW_EVAL_WITH_SERVER") != "1":
+        print(
+            "The API server is running on this data directory. Stop it first (the embedded "
+            "vector store must not be written by two processes at once), or set "
+            "ALLOW_EVAL_WITH_SERVER=1 and restart the server afterwards."
+        )
+        return 2
     await init_db()
 
     doc_arg = sys.argv[1] if len(sys.argv) > 1 else None
