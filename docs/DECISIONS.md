@@ -1541,3 +1541,24 @@ more defects that dropped content before it was ever indexed:
   Petrova" had reached the sample's knowledge graph), and an email pattern now accepts
   internal domains (.example, .corp) that Presidio's TLD check rejected.
 
+
+## Closing the remaining gaps: measured, and off by default where they change behaviour
+
+- **Red-team**: a persona-override jailbreak passed and an ordinary question about one's own
+  email was blocked. Fixed with a general pattern and a narrow, tested exception; 42/42
+  blocked, 0/15 false positives.
+- **PII**: a 40-sentence labelled set in four languages now measures detection (precision
+  0.97, recall 1.00); non-English names come from spaCy's multilingual model.
+- **Knowledge graph**: sentence co-occurrence relations for every chunk, so the graph does not
+  depend only on the chunks the model had time to read.
+- **Evaluation**: bootstrap confidence intervals, judge-free answer F1, and a second judge from
+  another model family to measure agreement.
+- **Native tool calling** for the planner exists and is tested, but routed 10/16 labelled
+  questions correctly against 13/16 for the JSON prompt with llama3.2:3b, so the JSON prompt
+  stays the default (`PLANNER_MODE`).
+- **PostgreSQL**: the suite failed 121 tests on Postgres for one reason (time-zone-aware
+  timestamps in naive columns); all timestamp columns are now time-zone aware and CI runs the
+  whole suite on Postgres. SQLite stays the default.
+- **Roles**: optional API keys with three roles from one policy table, off by default.
+- **Frontend**: all 36 lint warnings fixed without changing behaviour (end-to-end suite).
+

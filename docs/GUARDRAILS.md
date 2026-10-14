@@ -130,3 +130,14 @@ Counters live in Redis when `REDIS_URL` is set (shared by every backend process;
 against a real Redis) and in memory otherwise; a Redis outage falls back to memory instead of
 refusing requests. `X-Forwarded-For` is trusted only with `TRUST_FORWARDED_FOR=true`.
 
+## Access control (`app/core/auth.py`)
+
+Optional API keys with three roles — viewer (read, ask, search), analyst (also upload,
+compare, measure, evaluate), admin (also delete, reveal PII, change models and defaults, run
+the red-team suite, read the audit log). One policy table, matched by method and route
+template, is applied to every router, so a new endpoint cannot be left open by forgetting a
+decorator; an unmatched write needs analyst. Keys come from `API_KEYS` (`key:role` pairs), are
+sent as `X-API-Key`, a Bearer token, or `?api_key=` for the trace WebSocket, and are compared in
+constant time. Off by default (`AUTH_ENABLED=false`) because the app is a local single-user
+tool. `tests/test_auth.py` walks every route in the OpenAPI schema.
+

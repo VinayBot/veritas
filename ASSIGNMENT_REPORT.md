@@ -22,12 +22,13 @@ reproduce them are in section 9.
 |---|---|
 | Stack | FastAPI, LangGraph, LiteLLM + Ollama (`llama3.2:3b`, `llama-guard3:1b`), sentence-transformers (`all-MiniLM-L6-v2`), cross-encoder `ms-marco-MiniLM-L-6-v2`, ChromaDB / Qdrant, BM25, NetworkX / Neo4j, Docling, spaCy, Presidio, React 19 + TypeScript |
 | Size | 19,000 lines of Python in 175 modules; 14,500 lines of TypeScript; 58 REST endpoints plus SSE streaming and a trace WebSocket |
-| Tests | 458 backend tests (pytest), 28 frontend unit tests (Vitest), 32 end-to-end tests (Playwright) against the real backend and models |
+| Tests | 480 backend tests (pytest), 28 frontend unit tests (Vitest), 32 end-to-end tests (Playwright) against the real backend and models |
 | Coverage | 81% of backend lines, measured without the language model |
 | Retrieval strategies | 8: Naive, Hybrid, Hybrid + Rerank, HyDE, Semantic chunks, GraphRAG, Agentic, Council |
 | Best measured result | Agentic RAG passes every production gate: faithfulness 0.87, correctness 0.82, Recall@5 1.00, p95 13.7 s |
-| Safety | 41/42 red-team attacks blocked (97.6%), 1/15 harmless prompts blocked (6.7%), 0 PII values in the index |
+| Safety | 42/42 red-team attacks blocked, 0/15 harmless prompts blocked, 0 PII values in the index; PII detection precision 0.97, recall 1.00 on a labelled set in four languages |
 | Retrieval check | 31 hand-written questions over 4 real documents (incl. French and a 61-page handbook): every answer's evidence is in the top 5 |
+| Databases | SQLite by default, PostgreSQL supported; the full suite passes on both |
 | Development history | More than 40 commits from 11 to 14 October 2026, included in this folder (`git log`) |
 
 ---
@@ -150,9 +151,12 @@ benchmark (section 6.1).
 
 **Built.**
 - **Entity extraction** (`graphrag/extractor.py`): spaCy NER for entities; masked PII tokens kept
-  as entities of their own type, so relations to a (masked) person are not lost; relation
-  triples from the LLM with a strict JSON contract, parsed tolerantly (a reply cut off by the
-  token limit keeps every complete triple).
+  as entities of their own type, so relations to a (masked) person are not lost.
+- **Relations, two ways** (`graphrag/service.py`): named entities in the same sentence are
+  linked ("mentioned with") in every chunk, with no model, so a long document's graph is not
+  limited to the chunks a model had time to read (capped at six entities per sentence); typed
+  triples ("approves", "reports to") are read by the LLM from up to 20 chunks within a time
+  budget, with a strict JSON contract parsed tolerantly.
 - **Entity resolution** (`graphrag/resolver.py`): mentions merged only within the same NER
   label and only when both embedding similarity and fuzzy string similarity agree ("Jane Smith"
   vs "J. Smith" merge; "Jane Smith" vs "Jane Doe" do not).
@@ -168,7 +172,8 @@ benchmark (section 6.1).
 **Evidence.** `test_graph_store_parity.py` runs one set of expectations against both stores —
 merge across documents, question linking, hop-limited traversal both ways, per-document edges,
 removal, communities; CI runs it against a real Neo4j service container.
-`test_graphrag_*.py` cover extraction, resolution and the service; the end-to-end suite asks the
+`test_graphrag_*.py` and `test_graph_co_occurrence.py` cover extraction, resolution, relations
+and the service; the end-to-end suite asks the
 graph a question in the browser.
 
 ---
@@ -188,6 +193,13 @@ are rejected, since no user would ask them.
 supported by the cited passages, in full), relevancy, correctness against the known answer
 (`evaluation/judge.py`). An answer that claims the document lacks a stated answer scores 0 for
 correctness.
+
+**Making small samples honest** (`evaluation/stats.py`, `agreement.py`): every mean carries a
+95% bootstrap confidence interval, so two strategies are only called different when their
+intervals separate; answer F1 (SQuAD-style overlap with the known answer) needs no judge
+model; and because the judge is the same small model that answers, a second judge from a
+different model family (`gemma2:2b`) re-scores correctness and the benchmark reports their
+agreement (mean absolute difference, Pearson r, verdict agreement, Cohen's κ).
 
 Latest run, bundled HR handbook, 10 questions per strategy (6 for the agent):
 
@@ -249,7 +261,8 @@ Three layers plus the PII vault (`app/guardrails/`, `app/privacy/`); every decis
 
 | Layer | Checks |
 |---|---|
-| **Input** | Rate limit per session and per client address (Redis-backed when `REDIS_URL` is set; 429 with Retry-After); length, zero-width characters and decodable base64 payloads (`encoding.py`); prompt injection by regex heuristics, then the `protectai/deberta-v3-base-prompt-injection-v2` classifier (`injection.py`); Llama Guard 3 for unsafe content |
+| **Access** | Optional API keys with viewer / analyst / admin roles, enforced on every route from one policy table (`app/core/auth.py`); 401 without a valid key, 403 below the route's role; a test walks every route in the OpenAPI schema |
+| **Input** | Rate limit per session and per client address (Redis-backed when `REDIS_URL` is set; 429 with Retry-After); length, zero-width characters and decodable base64 payloads (`encoding.py`); prompt injection by regex heuristics (including persona overrides such as "pretend to be an unfiltered AI"), then the `protectai/deberta-v3-base-prompt-injection-v2` classifier (`injection.py`); Llama Guard 3 for unsafe content |
 | **Retrieval** | Every retrieved chunk scanned for indirect injection; all context wrapped in untrusted-data delimiters with an instruction hierarchy in the system prompt |
 | **Output** | Secret / system-prompt leak block; PII redaction for anything not already in the source passages; Llama Guard on the answer; answers without citations escalated |
 | **Request validation** | Pydantic v2 models on every request and response; uploads limited to 25 MB and to known formats |
@@ -258,8 +271,12 @@ Three layers plus the PII vault (`app/guardrails/`, `app/privacy/`); every decis
 data types (names, emails, phones, IPs, cards, IBAN, SSN, Aadhaar, PAN) so organisations and
 places stay available to the knowledge graph. Added recognizers: a given-name recognizer for
 names the small NER model misses, and an email pattern that accepts internal domains. On
-non-English documents the English NER's person guesses are not used, and any person span must
-look like a name. Values are replaced by deterministic HMAC tokens (`<PERSON_a1b2c3>`) before
+non-English documents names come from spaCy's multilingual model instead of the English one,
+and any person span must look like a name (no ordinary lowercase words, no organisation
+suffix). **Measured** on 40 hand-labelled sentences in English, French, German and Spanish
+(`tests/fixtures/pii_eval.json`, `make pii-eval`): precision 0.97, recall 1.00, F1 0.98 —
+every one of 31 values caught; one false positive ("Max Retries", a heading the English model
+reads as a name). Values are replaced by deterministic HMAC tokens (`<PERSON_a1b2c3>`) before
 chunking, so embeddings, indexes, the graph and the model never see them; originals sit in a
 Fernet-encrypted vault, revealed only through an audited endpoint.
 
@@ -273,11 +290,11 @@ Guard flags it (S1).
 | Category | Blocked |
 |---|---|
 | Direct injection | 10/10 |
-| Jailbreak | 9/10 |
+| Jailbreak | 10/10 |
 | Indirect injection (in documents) | 8/8 |
 | PII exfiltration | 8/8 |
 | Encoding tricks | 6/6 |
-| **Total** | **41/42 (97.6%)**, false positives 1/15 (6.7%) |
+| **Total** | **42/42 (100%)**, false positives 0/15 |
 
 Plus `test_guardrails_*.py` for every layer, `test_pii.py` and `test_scraper_ssrf.py`, and the
 benchmark's scan of every indexed chunk for PII (0 found).
@@ -299,24 +316,27 @@ each with a regression test:
 | Golden retrieval test | The English NER masked "bénéficie de seize semaines de congé payé" as a person in a French document | Language-aware detection and a name-shape check |
 | Screenshot review | Names and internal-domain emails the small NER missed reached the knowledge graph | Given-name and any-domain email recognizers |
 | Knowledge graph test | Relation replies cut off by the token limit were rejected whole, leaving the sample with no relations | Every complete triple is kept |
+| Red-team suite | A persona jailbreak ("pretend to be an unfiltered AI") passed; "What is my email address on file?" was blocked as injection | A persona-override pattern; a single question about one's own record skips the classifier unless it mentions instructions or everyone |
+| Running the suite on PostgreSQL | 121 tests failed: time-zone-aware timestamps were written to columns declared without a time zone, which SQLite silently accepts | All timestamp columns are time-zone aware |
+| PII labelled set | "Northwind Collective" was masked as a person | Person spans ending in an organisation word are rejected |
 
 ---
 
 ## 9. Engineering quality
 
-- **Tests.** 458 backend tests on real pipelines, no mocked backend logic. 35 call a local model
+- **Tests.** 480 backend tests on real pipelines, no mocked backend logic. 36 call a local model
   and are marked `needs_ollama`; where Ollama is absent they are skipped with a reason, and the
-  other 416 pass (81% coverage). With Ollama running, all 35 pass as well (about 6 minutes);
-  the Neo4j and Redis tests run against real servers in CI. 28 Vitest unit tests; 32 Playwright end-to-end tests that
-  drive the real UI against the real backend and models.
-- **CI** (`.github/workflows/ci.yml`): ruff lint and format, mypy, the pytest suite, the
-  retrieval suite again on Qdrant, a job with real Neo4j and Redis service containers, the
-  red-team gate (≥ 95% blocked, ≤ 10% false positives), and the frontend's lint, unit tests and
-  production build. All jobs pass.
-- **Typing.** mypy clean on all 175 modules; Pydantic v2 at every API boundary; strict
+  others pass (437, 81% coverage). With Ollama running the model tests pass too; the Neo4j,
+  Redis and PostgreSQL tests run against real servers in CI. 28 Vitest unit tests; 32
+  Playwright end-to-end tests that drive the real UI against the real backend and models.
+- **CI** (`.github/workflows/ci.yml`, six jobs): ruff lint and format, mypy, the pytest suite,
+  the retrieval suite again on Qdrant, the whole suite again on PostgreSQL, a job with real
+  Neo4j and Redis service containers, the red-team gate (≥ 95% blocked, ≤ 10% false
+  positives), and the frontend's lint (zero warnings), unit tests and production build.
+- **Typing.** mypy clean on all 179 modules; Pydantic v2 at every API boundary; strict
   TypeScript with a typed API client.
-- **Containers.** `docker-compose.yml` runs backend and frontend; `qdrant` and `neo4j` profiles
-  start those servers. Each service has a Dockerfile.
+- **Containers.** `docker-compose.yml` runs backend and frontend; `postgres`, `qdrant` and
+  `neo4j` profiles start those servers. Each service has a Dockerfile.
 - **Observability.** Every stage emits a trace event; per-stage latency is recorded and charted;
   `/health` and `/health/subsystems` probe each dependency; a self-check runs the pipeline end
   to end.
@@ -337,6 +357,8 @@ make setup && make dev        # UI at http://localhost:5173/app
 make test                     # backend and frontend test suites
 make eval                     # benchmark → docs/BENCHMARKS.md (about 25 minutes)
 make redteam                  # red-team suite
+make pii-eval                 # PII detection precision / recall
+make planner-eval             # planner routing: JSON prompt vs native tool calling
 cd frontend && npx playwright test   # end-to-end, about 15 minutes
 ```
 
@@ -347,25 +369,26 @@ cd frontend && npx playwright test   # end-to-end, about 15 minutes
 | Earlier feedback | In this assignment |
 |---|---|
 | Single commit, no iterative history (Week 1) | More than 40 focused commits over four days, included in the folder |
-| No Docker or CI (Week 1) | Dockerfiles, docker-compose with profiles, and a five-job CI workflow that passes |
+| No Docker or CI (Week 1) | Dockerfiles, docker-compose with profiles, and a six-job CI workflow that passes |
+| No RBAC / roles (Week 1) | Optional API keys with viewer, analyst and admin roles, enforced on every route from one policy table, tested route by route |
 | N+1 queries (Week 1) | Dashboard and audit statistics are `GROUP BY` / `COUNT` aggregates in single queries; document lists are one query plus a count |
-| No native tool calling (Week 2) | Partly: the agent's planner chooses among four retrieval tools (hybrid search, graph traversal, PII vault lookup, metadata filter) and LangGraph routes to them, but the choice is a validated JSON contract rather than the provider's native tool-calling API |
+| No native tool calling (Week 2) | The agent's planner can use the model's native tool calling (Ollama `/api/chat` tools, a Pydantic-validated schema), selected with `PLANNER_MODE`. Measured on 16 labelled questions it routed 10 correctly against 13 for the JSON prompt with this 3B model, so JSON stays the default — the choice is made by measurement (`make planner-eval`) |
 | In-memory rate limiting when Redis is off (Week 2) | Per-client limits with a Redis backend tested against a real Redis in CI; memory is only a fallback during a Redis outage |
-| SQLite limits concurrency (Week 2) | Still SQLite (single-user local tool), accessed through async SQLAlchemy; the heavy data lives in the vector and graph stores |
+| SQLite limits concurrency (Week 2) | PostgreSQL is supported (`DATABASE_URL`, asyncpg, a compose profile); the whole suite runs on PostgreSQL in CI. SQLite stays the default for a single-user local tool |
 
 ---
 
 ## 11. Limitations, stated plainly
 
 - The judge is the same local 3B model that answers, so judged scores are noisier than with a
-  large hosted judge; every score carries its sample size, and retrieval metrics (which need
-  no judge) are reported separately.
+  large hosted judge; every score carries its sample size and confidence interval, a second
+  judge's agreement is reported, and retrieval metrics and answer F1 need no judge at all.
 - Agentic RAG is the most faithful strategy but takes 11–14 s per answer on a laptop; it is
   recommended when it wins, never switched to silently.
-- The given-name recognizer covers common names in a fixed list; an unusual name the NER model
-  also misses can go unmasked. The output layer still redacts PII in answers.
-- The app is single-user: no authentication or roles, by design for a local tool.
-- 36 frontend lint warnings (React style rules) remain; lint, type-check and build pass.
+- PII detection was measured on 40 sentences; a larger labelled set would make the 0.97 / 1.00
+  firmer. The output layer still redacts PII in answers as a second line.
+- Access control is off by default (a local single-user tool); it must be switched on before
+  the app is exposed on a network.
 
 ---
 
