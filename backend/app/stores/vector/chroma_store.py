@@ -1,5 +1,5 @@
-"""ChromaDB adapter — the default dense vector store. Behind the VectorStore interface so
-Qdrant can be swapped in later via config (see docs/DECISIONS.md on why Qdrant isn't built yet).
+"""ChromaDB adapter — the default dense vector store. Qdrant implements the same interface
+(app/stores/vector/qdrant_store.py); VECTOR_STORE picks one (app/stores/vector/__init__.py).
 """
 
 from __future__ import annotations

@@ -47,10 +47,8 @@ async def health() -> dict:
         "app_env": settings.app_env,
         "hardware_tier": settings.hardware_tier,
         "ollama": {"status": ollama_status, "models": local_models},
-        # What the pipeline is actually wired to, not what the env var asks for — see
-        # /health/subsystems for a setting that has no effect.
-        "vector_store": "chroma",
-        "graph_store": "networkx",
+        "vector_store": settings.vector_store,
+        "graph_store": settings.graph_store,
         "preflight": preflight,
     }
 

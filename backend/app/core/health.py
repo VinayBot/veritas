@@ -152,13 +152,14 @@ async def _probe_chroma() -> ProbeResult:
 
     store = get_vector_store()
     count = await asyncio.to_thread(store.count)
+    backend = "Qdrant" if get_settings().vector_store == "qdrant" else "ChromaDB"
     return ProbeResult(
-        "chroma",
-        "ChromaDB",
+        "chroma",  # the probe's stable id; the backend in use is in the name and raw
+        backend,
         "healthy",
-        f"{count} vectors in collection '{store.collection_name}'",
+        f"{backend}: {count} vectors in collection '{store.collection_name}'",
         "functional",
-        raw={"collection": store.collection_name, "vectors": count},
+        raw={"backend": backend.lower(), "collection": store.collection_name, "vectors": count},
     )
 
 
@@ -196,23 +197,14 @@ async def _probe_graph_store() -> ProbeResult:
 
     store = get_graph_store()
     settings = get_settings()
+    backend = "Neo4j" if settings.graph_store == "neo4j" else "NetworkX"
     raw = {
-        "backend": "networkx",
+        "backend": backend.lower(),
         "entities": store.node_count(),
         "relations": store.edge_count(),
         "configured_backend": settings.graph_store,
     }
-    detail = f"NetworkX — {store.node_count()} entities, {store.edge_count()} relations"
-    if settings.graph_store != "networkx":
-        return ProbeResult(
-            "graph_store",
-            "Graph store",
-            "degraded",
-            detail + f". GRAPH_STORE={settings.graph_store} is set, but only the NetworkX "
-            "store is wired into the pipeline, so that setting has no effect.",
-            "functional",
-            raw=raw,
-        )
+    detail = f"{backend} — {store.node_count()} entities, {store.edge_count()} relations"
     return ProbeResult("graph_store", "Graph store", "healthy", detail, "functional", raw=raw)
 
 

@@ -23,12 +23,14 @@ Ingestion Theater (`frontend/src/pages/workspace-page.tsx`) animates from, not a
   -> Fernet-encrypted vault. Everything after this stage only ever sees `<TYPE_hex>` tokens;
   raw PII is reconstructed only through the audited `/pii/reveal` endpoint.
 - **Chunk/Embed/Index** (`app/chunking/`, `app/embeddings/`, `app/retrieval/indexing.py`): one
-  path (`index_document()`) that chunks, embeds, and writes to both the dense (Chroma) and
-  sparse (BM25) stores together, so they can't drift out of sync. Six chunking strategies are
+  path (`index_document()`) that chunks, embeds, and writes to both the dense store (ChromaDB,
+  or Qdrant with `VECTOR_STORE=qdrant`; both embedded, on disk) and the sparse (BM25) store
+  together, so they can't drift out of sync. Six chunking strategies are
   registered (`app/chunking/registry.py`); the baseline is `recursive(512, 64)`.
 - **Graph** (`app/graphrag/`): spaCy NER + LLM JSON-schema triple extraction on each chunk,
-  deterministic entity resolution, written into a `GraphStore` (NetworkX by default, a Neo4j
-  adapter behind the same `Protocol` for the `neo4j` Compose profile).
+  deterministic entity resolution, written into a `GraphStore`: NetworkX by default, Neo4j
+  with `GRAPH_STORE=neo4j` (the `neo4j` Compose profile starts one). Both pass the same
+  tests (`tests/test_graph_store_parity.py`; CI runs it against a real Neo4j).
 - **Profile/Advisor** (`app/profiler/`): real document-feature extraction, then (above
   `MIN_CHUNKS_FOR_TOURNAMENT`) a real 5-candidate chunking tournament against a synthetic eval
   set generated from the document's own chunks — the result backs the Dashboard's

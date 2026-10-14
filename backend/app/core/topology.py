@@ -195,11 +195,14 @@ def _cfg_evaluation() -> dict[str, Any]:
 
 
 def _cfg_graph_store() -> dict[str, Any]:
+    if get_settings().graph_store == "neo4j":
+        return {"backend": "neo4j", "persistence": "Neo4j server at NEO4J_URI"}
     return {"backend": "networkx", "persistence": "pickle file under DATA_DIR"}
 
 
 def _cfg_vector_store() -> dict[str, Any]:
-    return {"backend": "chroma", "distance": "cosine", "persistence": "DATA_DIR/chroma"}
+    backend = get_settings().vector_store
+    return {"backend": backend, "distance": "cosine", "persistence": f"DATA_DIR/{backend}"}
 
 
 def _cfg_bm25() -> dict[str, Any]:

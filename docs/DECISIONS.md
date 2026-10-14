@@ -1483,3 +1483,40 @@ document's chat strategy — the slowest one.
 - Automatic selection takes the best *direct* strategy. An agent strategy that measures
   best is shown as the recommendation with a reason, and the user switches with one click.
 
+
+
+## Grading pass: claims made true, CI that passes, and what the benchmark exposed
+
+An audit against the Week 3 topics found claims the code did not back, and a CI that would
+have failed on GitHub:
+
+- **Qdrant** was named in the README but did not exist. `app/stores/vector/qdrant_store.py`
+  runs Qdrant embedded (or at `QDRANT_URL`), behind the same interface and score scale as
+  ChromaDB; `VECTOR_STORE` selects it. A parity test shows identical hits and scores, and CI
+  runs the retrieval suite on both stores.
+- **Neo4j** had an adapter that could never be selected (the factory always returned
+  NetworkX) and that would not have worked: it searched for the whole question inside an
+  entity name, lacked methods the app calls, and MERGEd relations on null properties. It now
+  shares NetworkX's entity linking and behaviour, `GRAPH_STORE=neo4j` selects it, and one
+  parity test runs against both; CI starts a Neo4j service container for it.
+- **CI**: mypy had 6 errors; every test that calls a local model failed without Ollama.
+  Those tests are marked `needs_ollama` and skipped with a reason when Ollama is absent; the
+  rest (embedder, reranker, Presidio, Docling, injection classifier) still run for real.
+- **Parsers**: DOCX, PPTX, RTF and the legacy .doc/.xls path had no tests; XLSX was not
+  accepted although Docling reads it. Each format is now parsed from a real file in tests.
+
+Running the larger published benchmark (`make eval`: seven strategies, up to 12 questions)
+then exposed three real defects, each fixed:
+
+- **Chunk text was not the document's text.** The recursive chunker built its overlap, and
+  the fixed chunker its windows, by decoding tokens. MiniLM's tokenizer is uncased and splits
+  punctuation, so chunks reached the model, the citations and the graph lowercased and
+  re-spaced, with mask tokens broken into `< person _ b43251 >`; the PII scan counted one as
+  a leaked name. Chunk text is now cut from the original by token offsets.
+- **Faithfulness was judged against previews.** A citation carries the first 300 characters
+  of its passage; both the benchmark and the in-app score judged against those, about 15% of
+  the evidence. They now use the full cited passages.
+- **Prompts were silently truncated.** Ollama's default window is 4096 tokens and it drops
+  the start of a longer prompt without an error. The agent's summary and verifier prompts
+  exceed it. `OLLAMA_NUM_CTX` (8192) is now sent with every call; the 3B model grows from 2.3
+  to 2.7 GB resident.
