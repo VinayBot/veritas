@@ -24,13 +24,15 @@ class FixedChunker:
         ids = self._counter.encode(text)
         if not ids:
             return []
+        offsets = self._counter.offsets(text)
 
         chunks: list[Chunk] = []
         step = self.size - self.overlap
         start = 0
         while start < len(ids):
             window = ids[start : start + self.size]
-            chunk_text = self._counter.decode(window)
+            # Cut from the original text, not decoded: decoding lowercases and re-spaces it.
+            chunk_text = self._counter.span(text, offsets, start, start + self.size)
             chunk = Chunk(
                 chunk_id=str(uuid.uuid4()),
                 doc_id=doc_id,

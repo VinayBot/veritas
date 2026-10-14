@@ -71,9 +71,7 @@ class RecursiveChunker:
             if current and current_tokens + unit_tokens > self.size:
                 _flush()
                 # Carry the trailing ~overlap tokens of the previous chunk forward.
-                overlap_text = self._counter.decode(
-                    self._counter.encode(current[-1])[-self.overlap :]
-                )
+                overlap_text = self._counter.tail(current[-1], self.overlap)
                 current = [overlap_text] if overlap_text.strip() else []
                 current_tokens = self._counter.count(overlap_text) if current else 0
             current.append(unit)

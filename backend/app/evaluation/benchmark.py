@@ -32,7 +32,7 @@ from app.chunking.models import ChunkRow
 from app.core.config import get_settings
 from app.core.db import session_scope
 from app.evaluation.datasets import EvalItem
-from app.evaluation.judge import citation_validity, score_all
+from app.evaluation.judge import citation_validity, evidence_for, score_all
 from app.evaluation.metrics.retrieval import RetrievalMetricsAccumulator
 from app.ingestion.models import Document
 from app.privacy.detector import detect
@@ -276,14 +276,10 @@ async def evaluate_strategy(
 
         if on_step is not None:
             await on_step(index, len(sample), "scoring")
-        cited_context = "\n\n".join(c["text"] for c in turn.citations)
         judged = await score_all(
             turn.answer,
             item.question,
-            # An answer that cites nothing is judged against everything it was shown.
-            context=cited_context
-            if turn.citations
-            else "\n\n".join(str(h.get("text", "")) for h in turn.retrieved),
+            context=evidence_for(turn.citations, turn.retrieved),
             ground_truth=item.ground_truth_answer,
         )
         faithfulness = judged["faithfulness"]

@@ -8,6 +8,7 @@ the label based on whether a ground-truth answer was available, not this module.
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from app.agents.citations import citation_markers
 from app.llm.client import LlmUnavailableError, complete
@@ -155,6 +156,21 @@ _NOT_COVERED_RE = re.compile(
 def says_not_covered(text: str) -> bool:
     """An abstention, or a reply that the document does not hold the answer."""
     return is_abstention(text) or bool(_NOT_COVERED_RE.search(text))
+
+
+def evidence_for(
+    citations: list[dict[str, Any]] | Any, retrieved: list[dict[str, Any]] | Any
+) -> str:
+    """The text an answer is judged against: the full passages it cites or, when it cites
+    nothing, everything it was shown. A citation carries only the first 300 characters of its
+    passage (enough for a preview); judging against that measured faithfulness against about
+    15% of the evidence, so claims taken from later in a passage were scored as unsupported."""
+    full = {str(h.get("chunk_id")): str(h.get("text", "")) for h in retrieved}
+    if citations:
+        return "\n\n".join(
+            full.get(str(c.get("chunk_id")), str(c.get("text", ""))) for c in citations
+        )
+    return "\n\n".join(full.values())
 
 
 def is_abstention(answer: str) -> bool:

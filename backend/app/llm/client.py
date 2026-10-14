@@ -258,7 +258,12 @@ def _is_resident(model_name: str) -> bool:
 def _ollama_options(model_name: str) -> dict[str, Any]:
     if not model_name.startswith(("ollama/", "ollama_chat/")):
         return {}
-    return {"api_base": get_settings().ollama_base_url}
+    # An explicit context window. Ollama's default is 4096 tokens, and a longer prompt is cut
+    # from the start without an error, which drops the instructions: the agent's summary
+    # prompt (eight passages of up to 512 tokens plus notes) and its verifier prompt exceed
+    # it. One value for every call, so a model is never reloaded for a different window.
+    settings = get_settings()
+    return {"api_base": settings.ollama_base_url, "num_ctx": settings.ollama_num_ctx}
 
 
 async def _release(model_name: str) -> None:

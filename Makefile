@@ -5,6 +5,7 @@
 DOCKER_COMPOSE := $(shell command -v docker-compose >/dev/null 2>&1 && echo docker-compose || echo docker compose)
 
 setup:
+	[ -f .env ] || cp .env.example .env
 	cd backend && uv sync && uv run pre-commit install
 	cd frontend && npm install
 

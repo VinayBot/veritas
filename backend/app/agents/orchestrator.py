@@ -46,7 +46,7 @@ from app.core.db import session_scope
 from app.core.tracing import trace_bus
 from app.council.service import run_council
 from app.evaluation.grounding import ground_answer
-from app.evaluation.judge import citation_validity, judge_model, score_all
+from app.evaluation.judge import citation_validity, evidence_for, judge_model, score_all
 from app.guardrails.input import check_input
 from app.guardrails.retrieval import scan_hits
 from app.llm import client as llm_client
@@ -479,15 +479,13 @@ async def score_quality(turn: Turn) -> dict[str, Any]:
     shown_context = "\n\n".join(str(h.get("text", "")) for h in turn.retrieved) or "\n\n".join(
         str(c.get("text", "")) for c in turn.citations
     )
-    cited_context = "\n\n".join(str(c.get("text", "")) for c in turn.citations)
+    evidence = evidence_for(turn.citations, turn.retrieved) or shown_context
 
     async def judged() -> dict[str, float | None]:
         # Relevancy and faithfulness from one judge call.
         # Against what it cited; an answer that cites nothing is still judged against
         # everything it was shown, rather than left unmeasured.
-        return await score_all(
-            turn.answer, turn.query, context=cited_context if turn.citations else shown_context
-        )
+        return await score_all(turn.answer, turn.query, context=evidence)
 
     async def grounding() -> dict[str, Any] | None:
         if turn.outcome == "blocked" or not shown_context.strip():

@@ -120,6 +120,7 @@ class Settings(BaseSettings):
     # time per model by default, so sending more only makes them time out while queued.
     llm_max_concurrency: int = Field(default=1, alias="LLM_MAX_CONCURRENCY")
     ollama_keep_alive: str = Field(default="10m", alias="OLLAMA_KEEP_ALIVE")
+    ollama_num_ctx: int = Field(default=8192, alias="OLLAMA_NUM_CTX")
 
     @property
     def cors_origin_list(self) -> list[str]:
