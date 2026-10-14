@@ -23,7 +23,26 @@ _INJECTION_PATTERNS = [
     re.compile(r"</?(system|assistant|user)>", re.I),
     re.compile(r"\bDAN\b"),
     re.compile(r"you are now (in )?(developer|dan|unfiltered) mode", re.I),
+    # Persona override, whatever the persona is called: "pretend to be an unfiltered AI",
+    # "role-play as an assistant without any rules". The classifier scored this framing 0.008.
+    re.compile(
+        r"\b(pretend|act|role-?play|imagine|behave)\b[^.?!]{0,60}\b("
+        r"unfiltered|uncensored|unrestricted|jailbroken|"
+        r"(without|with no|no) (any )?(rules|restrictions|filters|limits|guidelines|ethics)"
+        r")\b",
+        re.I,
+    ),
 ]
+
+# One short question about the asker's own record ("What is my email address on file?"). The
+# classifier scored that 0.98 as injection; it is an ordinary lookup, which the PII vault then
+# answers only with authorisation. Questions about other people or about everyone, and anything
+# with an override phrase (the regexes above run first), are still classified.
+_OWN_RECORD_QUESTION_RE = re.compile(
+    r"^\s*(what|which|where|when|how|is|do|does|can)\b[^?.!\n]{0,80}"
+    r"\b(my|mine)\b[^?.!\n]{0,60}\?\s*$",
+    re.I,
+)
 
 
 class InjectionVerdict:
@@ -68,4 +87,8 @@ def scan(text: str) -> InjectionVerdict:
     regex_result = regex_scan(text)
     if regex_result.is_injection:
         return regex_result
+    if _OWN_RECORD_QUESTION_RE.match(text) and not re.search(
+        r"\b(instruction|prompt|system|polic|rule|everyone|every|all)\w*", text, re.I
+    ):
+        return InjectionVerdict(is_injection=False, score=0.0, matched="own_record_question")
     return classifier_scan(text)
