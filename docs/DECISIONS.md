@@ -1520,3 +1520,24 @@ then exposed three real defects, each fixed:
   the start of a longer prompt without an error. The agent's summary and verifier prompts
   exceed it. `OLLAMA_NUM_CTX` (8192) is now sent with every call; the 3B model grows from 2.3
   to 2.7 GB resident.
+
+Putting the unused test fixtures to work (a golden question set over four real documents,
+each question with a verbatim evidence quote that must be retrieved in the top 5) found two
+more defects that dropped content before it was ever indexed:
+
+- **Near-duplicate paragraphs were removed whole.** The refiner dropped any paragraph 80%
+  similar to an earlier one. Documents that wrap each fact in the same template wording lost
+  the facts: the 61-page handbook fixture kept 14,717 of 261,352 characters, and 6 of its 10
+  questions had no answer anywhere in the index. A paragraph is now removed only when every
+  sentence in it already appeared; long template sentences repeated three or more times are
+  kept once. Across the four fixtures, no unique sentence is lost; the demo documents refine
+  exactly as before.
+- **English NER on a French document masked facts.** spaCy's English model tagged
+  "bénéficie de seize semaines de congé payé" as a PERSON, so the fact was replaced by a
+  token. The document's detected language now reaches the detector: on non-English text the
+  NER model's PERSON guesses are not used, and any PERSON span must look like a name (every
+  word capitalised except particles such as "de" or "van"). Names are still caught there by a
+  given-name recognizer, which also catches English names the small model misses ("Elena
+  Petrova" had reached the sample's knowledge graph), and an email pattern now accepts
+  internal domains (.example, .corp) that Presidio's TLD check rejected.
+

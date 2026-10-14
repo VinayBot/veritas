@@ -40,3 +40,29 @@ def test_empty_text_scores_zero() -> None:
     result = refine("")
     assert result.quality_before == 0.0
     assert result.quality_after == 0.0
+
+
+def test_templated_paragraphs_keep_their_facts() -> None:
+    """Each paragraph is a unique fact wrapped in the same template wording, as in many policy
+    documents. Near-duplicate removal used to drop such paragraphs whole, facts included."""
+    from app.ingestion.refiner import refine
+
+    template = (
+        "This section exists to provide additional context and should be read in conjunction "
+        "with the surrounding chapter. Employees with questions should contact their HR "
+        "business partner rather than relying on informal guidance from colleagues."
+    )
+    facts = [f"Policy item {i} sets the limit at {i * 7} days." for i in range(1, 12)]
+    text = "\n\n".join(f"{fact} {template}" for fact in facts)
+    refined = refine(text).text
+    for fact in facts:
+        assert fact in refined
+    assert refined.count("This section exists to provide additional context") == 1
+
+
+def test_a_paragraph_that_adds_nothing_new_is_still_removed() -> None:
+    from app.ingestion.refiner import refine
+
+    para = "Remote work requires written manager approval for every arrangement longer than a week."
+    refined = refine(f"{para}\n\nIntro text that is unique.\n\n{para}").text
+    assert refined.count(para) == 1

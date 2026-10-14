@@ -102,3 +102,24 @@ def _dummy(tmp_path, suffix: str):
     path = tmp_path / f"old{suffix}"
     path.write_bytes(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\0" * 512)  # OLE2 header
     return path
+
+
+_FIXTURES = __import__("pathlib").Path(__file__).resolve().parents[2] / "tests" / "fixtures"
+
+
+def test_a_scanned_page_without_a_text_layer_is_read_by_ocr() -> None:
+    parsed = parse_file(_FIXTURES / "scanned_image_only.pdf")
+    assert "Visitor and Badge Access Policy" in parsed.text
+
+
+def test_a_long_document_keeps_its_last_chapter() -> None:
+    parsed = parse_file(_FIXTURES / "long_fifty_pages.pdf")
+    assert parsed.pages == 61
+    assert "fire drill" in parsed.text.lower()  # chapter 15, the end of the handbook
+
+
+def test_a_corrupt_file_fails_with_a_message_a_user_can_act_on() -> None:
+    from app.ingestion.parsers.base import ParseError
+
+    with pytest.raises(ParseError, match="empty, corrupt, or password-protected"):
+        parse_file(_FIXTURES / "corrupted.pdf")

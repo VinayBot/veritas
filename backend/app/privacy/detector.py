@@ -76,10 +76,21 @@ class GivenNameRecognizer(EntityRecognizer):
         if "PERSON" not in entities:
             return []
         return [
-            RecognizerResult("PERSON", m.start(1), m.end(2), 0.7)
+            RecognizerResult(
+                "PERSON",
+                m.start(1),
+                m.end(2),
+                # Above spaCy's 0.85: Presidio keeps one result per span, the higher scored,
+                # and on non-English text spaCy's is discarded afterwards.
+                0.9,
+            )
             for m in _GIVEN_NAME_RE.finditer(text)
             if m.group(1).lower() in GIVEN_NAMES
         ]
+
+
+def _recognizer(result: RecognizerResult) -> str:
+    return str((result.recognition_metadata or {}).get("recognizer_name", ""))
 
 
 def _custom_recognizers() -> list[EntityRecognizer]:
@@ -122,13 +133,40 @@ def _get_analyzer() -> AnalyzerEngine:
     return analyzer
 
 
-def detect(text: str, language: str = "en") -> list[DetectedEntity]:
+# Lowercase words a real full name can contain ("Ludwig van Beethoven", "Ana de Souza").
+_NAME_PARTICLES = frozenset("de da di du del della der den van von la le al bin ibn y e".split())
+
+
+def _plausible_name(span: str) -> bool:
+    """A PERSON span has every word capitalised except name particles. The English NER model
+    produced spans such as "bénéficie de seize semaines de congé payé" on a French policy, and
+    masking them destroyed the facts they stated."""
+    words = [w for w in re.split(r"[\s,]+", span.strip()) if w]
+    return bool(words) and all(
+        w[0].isupper() or not w[0].isalpha() or w.lower() in _NAME_PARTICLES for w in words
+    )
+
+
+def detect(text: str, language: str | None = "en") -> list[DetectedEntity]:
+    """`language`: the document's language. The NER model is English; on any other language its
+    PERSON guesses are dropped, and names come only from the pattern-based recognizers (given
+    names, emails, phone numbers, IDs), which do not depend on the language."""
     if not text.strip():
         return []
     analyzer = _get_analyzer()
     results: list[RecognizerResult] = analyzer.analyze(
-        text=text, language=language, entities=list(ALLOWED_ENTITIES)
+        text=text, language="en", entities=list(ALLOWED_ENTITIES)
     )
+    english = language in (None, "en")
+    results = [
+        r
+        for r in results
+        if r.entity_type != "PERSON"
+        or (
+            _plausible_name(text[r.start : r.end])
+            and (english or _recognizer(r) != "SpacyRecognizer")
+        )
+    ]
     detected = [
         DetectedEntity(
             entity_type=r.entity_type,

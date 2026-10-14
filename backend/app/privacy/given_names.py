@@ -24,6 +24,7 @@ GIVEN_NAMES = frozenset(
     robert rohan rosa ruth ryan sakura samuel sandra sanjay sara sarah sean sergei shreya simon
     sofia sophia sophie stefan stephen steven sunil susan suresh takeshi tanya thomas tim
     timothy tom tomas usha valentina vera victor vijay vikram vinay william wei xin yan yuki
-    yusuf zara zhang
+    yusuf zara zhang antoine camille celine juliette julien louis manon marie mathieu
+    nicolas pierre thibault
     """.split()
 )

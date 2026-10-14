@@ -30,8 +30,10 @@ def _drop_overlaps(entities: list) -> list:
     return kept
 
 
-async def tokenize_text(text: str, document_id: str | None = None) -> TokenizeResult:
-    entities = _drop_overlaps(detect(text))
+async def tokenize_text(
+    text: str, document_id: str | None = None, language: str | None = None
+) -> TokenizeResult:
+    entities = _drop_overlaps(detect(text, language))
     counts: Counter[str] = Counter()
 
     # Replace right-to-left so earlier spans' indices stay valid as we edit.

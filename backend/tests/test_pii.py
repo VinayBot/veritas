@@ -95,3 +95,23 @@ def test_emails_on_internal_domains_are_masked() -> None:
     text = "Write to priya.sharma@northwind-tech.example"
     found = [(e.entity_type, e.text) for e in detect(text)]
     assert found == [("EMAIL_ADDRESS", "priya.sharma@northwind-tech.example")]
+
+
+def test_a_french_policy_keeps_its_facts_and_masks_its_owner() -> None:
+    """The English NER model called "bénéficie de seize semaines de congé payé" a person, and
+    masking it erased the fact. On non-English text its guesses are not used."""
+    from app.privacy.detector import detect
+
+    text = (
+        "Le parent principal bénéficie de seize semaines de congé payé. "
+        "Responsable de la politique : Camille Dubois, Responsable des Ressources Humaines."
+    )
+    found = [(e.entity_type, e.text) for e in detect(text, "fr")]
+    assert found == [("PERSON", "Camille Dubois")]
+
+
+def test_a_person_span_cannot_contain_ordinary_lowercase_words() -> None:
+    from app.privacy.detector import _plausible_name
+
+    assert _plausible_name("Ana de Souza") and _plausible_name("Ludwig van Beethoven")
+    assert not _plausible_name("bénéficie de seize semaines")

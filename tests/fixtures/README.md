@@ -1,7 +1,7 @@
 # Test fixtures
 
-Shared across backend pytest, frontend Playwright, and the quality/eval runner — one set of
-real files instead of three divergent copies.
+Shared by the backend pytest suite (parsing, OCR, ingestion failures, golden retrieval) and
+the Playwright tests — one set of real files instead of divergent copies.
 
 | File | Purpose | Real content? |
 |---|---|---|
@@ -12,7 +12,7 @@ real files instead of three divergent copies.
 | `non_english.pdf` | Non-English (French) document | Yes — paid leave policy, 6 facts, questions in French |
 | `empty.pdf` | 0-byte file | — (deliberately broken) |
 | `corrupted.pdf` | Random bytes with a `.pdf` extension | — (deliberately broken) |
-| `golden_qa.json` | 5-10 real question/expected-answer pairs per good document above | — |
+| `golden_qa.json` | Real question / expected answer / verbatim evidence for each document above; `backend/tests/test_golden_retrieval.py` checks every question's evidence is retrieved in the top 5 | — |
 
 **`oversized.pdf` is generated on demand, not committed** — see `make_oversized.py`. A 25MB+
 blob of random bytes has no stable content worth version-controlling; any such blob exercises

@@ -176,32 +176,87 @@ def _merge_broken_paragraphs(text: str, fixes: list[FixLogEntry]) -> str:
     return "\n\n".join(out_paragraphs)
 
 
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+# A sentence this long that recurs this often is template wording ("This section exists to
+# provide additional context..."), not content.
+_TEMPLATE_SENTENCE_MIN_CHARS = 60
+_TEMPLATE_SENTENCE_MIN_REPEATS = 3
+
+
+def _sentence_key(sentence: str) -> str:
+    return " ".join(sentence.split()).lower()
+
+
 def _dedupe_paragraphs(text: str, fixes: list[FixLogEntry]) -> tuple[str, float]:
+    """Removes repetition without removing content.
+
+    A near-duplicate paragraph (MinHash similarity >= 0.8) is dropped only when every one of
+    its sentences already appeared earlier. Before, it was dropped outright: a policy that
+    wraps each fact in the same template wording lost the fact with the template; a 61-page
+    handbook kept 14,717 of its 261,352 characters. Then template sentences, long sentences
+    repeated three or more times, are kept only where they first occur."""
     paragraphs = [p for p in text.split("\n\n") if p.strip()]
     if len(paragraphs) < 2:
         return text, 0.0
 
     lsh = MinHashLSH(threshold=0.8, num_perm=64)
     kept: list[str] = []
+    seen: set[str] = set()
     removed = 0
     examples: list[str] = []
 
     for i, para in enumerate(paragraphs):
+        sentences = [_sentence_key(x) for x in _SENTENCE_SPLIT_RE.split(para) if x.strip()]
         shingles = {para[j : j + 8] for j in range(max(len(para) - 8, 1))} or {para}
         mh = MinHash(num_perm=64)
         for shingle in shingles:
             mh.update(shingle.encode("utf-8"))
-        key = f"p{i}"
-        if len(para) > 40 and lsh.query(mh):
+        if len(para) > 40 and lsh.query(mh) and all(x in seen for x in sentences):
             removed += 1
             examples.append(para[:60])
             continue
         if len(para) > 40:
-            lsh.insert(key, mh)
+            lsh.insert(f"p{i}", mh)
+        seen.update(sentences)
         kept.append(para)
+
+    counts = Counter(
+        _sentence_key(x) for para in kept for x in _SENTENCE_SPLIT_RE.split(para) if x.strip()
+    )
+    template = {
+        key
+        for key, n in counts.items()
+        if n >= _TEMPLATE_SENTENCE_MIN_REPEATS and len(key) >= _TEMPLATE_SENTENCE_MIN_CHARS
+    }
+    trimmed = 0
+    if template:
+        emitted: set[str] = set()
+        out: list[str] = []
+        for para in kept:
+            # Sentences with the whitespace that follows each, so a paragraph that loses
+            # nothing is unchanged and one that does keeps its own line breaks.
+            pieces = re.split(r"(?<=[.!?])(\s+)", para)
+            pairs = [
+                (pieces[i], pieces[i + 1] if i + 1 < len(pieces) else "")
+                for i in range(0, len(pieces), 2)
+            ]
+            parts = []
+            for sentence, gap in pairs:
+                key = _sentence_key(sentence)
+                if key in template and key in emitted:
+                    trimmed += 1
+                    continue
+                emitted.add(key)
+                parts.append(sentence + gap)
+            rebuilt = "".join(parts).strip()
+            if rebuilt:
+                out.append(rebuilt if len(parts) < len(pairs) else para)
+        kept = out
 
     if removed:
         fixes.append(FixLogEntry("near_duplicate_paragraph_removed", removed, examples))
+    if trimmed:
+        fixes.append(FixLogEntry("repeated_template_sentence_removed", trimmed))
     return "\n\n".join(kept), removed / len(paragraphs)
 
 

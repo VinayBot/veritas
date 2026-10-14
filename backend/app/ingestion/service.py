@@ -237,7 +237,9 @@ async def _run_critical_path(
             document_id, "pii_vault", from_stage="refine", to_stage="chunk"
         ) as h:
             tokenized = await _timed(
-                document_id, stage, tokenize_text(result.text, document_id=document_id)
+                document_id,
+                stage,
+                tokenize_text(result.text, document_id=document_id, language=result.language),
             )
             h.set_metric("pii_counts", tokenized.pii_counts)
             h.set_output(f"{sum(tokenized.pii_counts.values())} PII spans tokenized")
