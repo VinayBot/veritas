@@ -4123,6 +4123,7 @@ dependencies = [
     { name = "transformers" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "websockets" },
+    { name = "xx-ent-wiki-sm" },
 ]
 
 [package.optional-dependencies]
@@ -4190,6 +4191,7 @@ requires-dist = [
     { name = "transformers", specifier = ">=4.44" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
     { name = "websockets", specifier = ">=13.0" },
+    { name = "xx-ent-wiki-sm", url = "https://github.com/explosion/spacy-models/releases/download/xx_ent_wiki_sm-3.7.0/xx_ent_wiki_sm-3.7.0-py3-none-any.whl" },
 ]
 provides-extras = ["redis", "qdrant", "neo4j", "scrape"]
 
@@ -4353,6 +4355,20 @@ sdist = { url = "https://files.pythonhosted.org/packages/46/2c/c06ef49dc36e7954e
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3a/0c/3662f4a66880196a590b202f0db82d919dd2f89e99a27fadef91c4a33d41/xlsxwriter-3.2.9-py3-none-any.whl", hash = "sha256:9a5db42bc5dff014806c58a20b9eae7322a134abb6fce3c92c181bfb275ec5b3", size = 175315, upload-time = "2025-09-16T00:16:20.108Z" },
 ]
+
+[[package]]
+name = "xx-ent-wiki-sm"
+version = "3.7.0"
+source = { url = "https://github.com/explosion/spacy-models/releases/download/xx_ent_wiki_sm-3.7.0/xx_ent_wiki_sm-3.7.0-py3-none-any.whl" }
+dependencies = [
+    { name = "spacy" },
+]
+wheels = [
+    { url = "https://github.com/explosion/spacy-models/releases/download/xx_ent_wiki_sm-3.7.0/xx_ent_wiki_sm-3.7.0-py3-none-any.whl", hash = "sha256:66c227a793f8a79814d6ca1da7c0ae633172e2fb0a94737bc8bd2e517479e73c" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "spacy", specifier = ">=3.7.0,<3.8.0" }]
 
 [[package]]
 name = "xxhash"

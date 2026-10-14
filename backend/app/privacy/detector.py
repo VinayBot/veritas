@@ -137,20 +137,47 @@ def _get_analyzer() -> AnalyzerEngine:
 _NAME_PARTICLES = frozenset("de da di du del della der den van von la le al bin ibn y e".split())
 
 
+# A final word that names an organisation, not a person ("Northwind Collective", "Acme Ltd").
+_ORGANISATION_WORDS = frozenset(
+    """collective inc ltd llc plc corp corporation company co group holdings foundation
+    university college institute bank partners systems technologies labs agency council
+    committee department ministry association society trust""".split()
+)
+
+
 def _plausible_name(span: str) -> bool:
     """A PERSON span has every word capitalised except name particles. The English NER model
     produced spans such as "bénéficie de seize semaines de congé payé" on a French policy, and
     masking them destroyed the facts they stated."""
     words = [w for w in re.split(r"[\s,]+", span.strip()) if w]
+    if words and words[-1].lower().strip(".") in _ORGANISATION_WORDS:
+        return False
     return bool(words) and all(
         w[0].isupper() or not w[0].isalpha() or w.lower() in _NAME_PARTICLES for w in words
     )
 
 
+@lru_cache(maxsize=1)
+def _multilingual_nlp():
+    import spacy
+
+    return spacy.load("xx_ent_wiki_sm")
+
+
+def _multilingual_names(text: str) -> list[DetectedEntity]:
+    return [
+        DetectedEntity("PERSON", ent.start_char, ent.end_char, 0.85, ent.text)
+        for ent in _multilingual_nlp()(text).ents
+        if ent.label_ == "PER" and _plausible_name(ent.text) and len(ent.text.split()) >= 2
+    ]
+
+
 def detect(text: str, language: str | None = "en") -> list[DetectedEntity]:
-    """`language`: the document's language. The NER model is English; on any other language its
-    PERSON guesses are dropped, and names come only from the pattern-based recognizers (given
-    names, emails, phone numbers, IDs), which do not depend on the language."""
+    """`language`: the document's language. On English text names come from the English NER
+    model and the given-name recognizer. On any other language the English model's PERSON
+    guesses are dropped (it read "bénéficie de seize semaines de congé payé" as a name) and the
+    multilingual model `xx_ent_wiki_sm` supplies names instead. Emails, phone numbers and IDs
+    come from patterns, which do not depend on the language."""
     if not text.strip():
         return []
     analyzer = _get_analyzer()
@@ -178,5 +205,11 @@ def detect(text: str, language: str | None = "en") -> list[DetectedEntity]:
         for r in results
         if r.score >= MIN_SCORE
     ]
+    if not english:
+        detected += [
+            ent
+            for ent in _multilingual_names(text)
+            if not any(d.start < ent.end and ent.start < d.end for d in detected)
+        ]
     # Longer matches first so overlap-resolution (service.py) prefers the more specific span.
     return sorted(detected, key=lambda d: (d.start, -(d.end - d.start)))
