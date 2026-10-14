@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from app.guardrails.llama_guard import classify
 
 
@@ -8,6 +10,7 @@ async def test_classifies_benign_message_as_safe() -> None:
     assert verdict.is_safe
 
 
+@pytest.mark.needs_ollama
 async def test_classifies_weapons_content_as_unsafe() -> None:
     # Squarely in Llama Guard's own trained categories (unlike jailbreak *framing*, which is
     # the injection classifier's job, not Llama Guard's — see docs/DECISIONS.md).

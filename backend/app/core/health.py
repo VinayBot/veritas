@@ -148,7 +148,7 @@ async def _probe_ollama() -> ProbeResult:
 
 
 async def _probe_chroma() -> ProbeResult:
-    from app.stores.vector.chroma_store import get_vector_store
+    from app.stores.vector import get_vector_store
 
     store = get_vector_store()
     count = await asyncio.to_thread(store.count)
@@ -472,7 +472,7 @@ async def run_self_check() -> list[SelfCheckStage]:
     from app.llm.models_config import get_model_config
     from app.stores.bm25 import get_bm25_index
     from app.stores.graph.networkx_store import get_graph_store
-    from app.stores.vector.chroma_store import get_vector_store
+    from app.stores.vector import get_vector_store
 
     settings = get_settings()
     state: dict[str, Any] = {}

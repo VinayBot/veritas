@@ -58,14 +58,14 @@ async def _measured_runs(document_id: str) -> list[dict[str, Any]]:
                 )
             )
         ).scalars()
-        for row in benchmarks:
-            ran = _ran(row.config_results)
+        for bench in benchmarks:
+            ran = _ran(bench.config_results)
             if len(ran) >= 2:
                 runs.append(
                     {
                         "source": "evaluation",
-                        "id": row.id,
-                        "created_at": row.created_at,
+                        "id": bench.id,
+                        "created_at": bench.created_at,
                         "results": ran,
                         "n": min(int(r.get("n_samples") or 0) for r in ran),
                     }

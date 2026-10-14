@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from conftest import wait_for_document
 from httpx import AsyncClient
 
@@ -10,6 +11,7 @@ from app.profiler.tournament import default_candidates, run_tournament
 from app.rag_engines.registry import STRATEGIES
 
 
+@pytest.mark.needs_ollama
 async def test_full_tournament_and_advisor_on_a_real_document(client: AsyncClient) -> None:
     content = (
         b"# Vacation Policy\n\n"

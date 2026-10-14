@@ -35,6 +35,7 @@ async def _upload(client: AsyncClient) -> str:
     return doc["id"]
 
 
+@pytest.mark.needs_ollama
 async def test_a_new_document_is_measured_and_answered_with_its_best_strategy(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

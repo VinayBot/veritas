@@ -27,7 +27,7 @@ from app.retrieval.hybrid import FusedHit, reciprocal_rank_fusion
 from app.retrieval.hyde import hyde_rewrite
 from app.retrieval.reranker import get_reranker
 from app.stores.bm25 import get_bm25_index
-from app.stores.vector.chroma_store import get_vector_store
+from app.stores.vector import get_vector_store
 
 VALID_MODES = ("hybrid", "dense", "bm25")
 VALID_DEDUPE_STRATEGIES = ("mmr", "cosine", "ngram")

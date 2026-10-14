@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from conftest import upload_and_wait_ready, wait_for_enrichment
 from httpx import AsyncClient
 
@@ -12,6 +13,7 @@ DOC = (
 )
 
 
+@pytest.mark.needs_ollama
 async def test_overview_is_computed_from_real_rows(client: AsyncClient) -> None:
     doc = await upload_and_wait_ready(client, "partners.md", DOC, "text/markdown")
     before = (await client.get("/api/v1/analytics/overview")).json()

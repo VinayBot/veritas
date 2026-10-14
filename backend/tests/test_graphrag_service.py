@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+
 from app.chunking.base import Chunk
 from app.graphrag.service import build_graph_for_document, graph_query, link_query_entities
 from app.stores.graph.networkx_store import get_graph_store
@@ -13,6 +15,7 @@ def _chunk(doc_id: str, text: str) -> Chunk:
     return c
 
 
+@pytest.mark.needs_ollama
 async def test_build_graph_for_document_creates_entities_and_relation() -> None:
     """Despite its name, this previously only ever asserted on entity count — stats["triples"]
     and the actual edges were never checked, so a regression that broke relation extraction/

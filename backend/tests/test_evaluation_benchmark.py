@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
 from conftest import wait_for_document
 from httpx import AsyncClient
 
@@ -10,6 +11,7 @@ from app.evaluation.datasets import EvalItem, generate_dataset
 from app.evaluation.report import render_markdown
 
 
+@pytest.mark.needs_ollama
 async def test_benchmark_runs_real_configs_and_scores_them(client: AsyncClient) -> None:
     content = (
         b"# Vacation Policy\n\n"
@@ -54,6 +56,7 @@ async def test_benchmark_runs_real_configs_and_scores_them(client: AsyncClient) 
     assert "hybrid_rerank" in markdown and "| hybrid |" in markdown
 
 
+@pytest.mark.needs_ollama
 async def test_benchmark_runs_the_council_strategy_when_explicitly_requested(
     client: AsyncClient,
 ) -> None:

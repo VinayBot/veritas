@@ -45,6 +45,7 @@ def test_select_primary_model_uses_a_stronger_model_for_long_queries(
     assert select_primary_model(long_query) != settings.default_llm_model
 
 
+@pytest.mark.needs_ollama
 async def test_complete_with_latency_budget_uses_primary_when_it_succeeds() -> None:
     result = await complete_with_latency_budget(
         "Reply with the single word: hello", query_for_routing="hi", max_tokens=10
@@ -55,6 +56,7 @@ async def test_complete_with_latency_budget_uses_primary_when_it_succeeds() -> N
     assert result.latency_ms > 0
 
 
+@pytest.mark.needs_ollama
 async def test_complete_with_latency_budget_force_primary_model_overrides_the_pick() -> None:
     settings = get_settings()
     simple_query = "What is the vacation policy?"
@@ -72,6 +74,7 @@ async def test_complete_with_latency_budget_force_primary_model_overrides_the_pi
     assert result.model_used == forced
 
 
+@pytest.mark.needs_ollama
 async def test_complete_with_latency_budget_falls_back_when_primary_is_unavailable(
     monkeypatch,
 ) -> None:
@@ -95,6 +98,7 @@ async def test_complete_with_latency_budget_falls_back_when_primary_is_unavailab
     assert result.answer
 
 
+@pytest.mark.needs_ollama
 async def test_complete_with_latency_budget_falls_back_when_primary_exceeds_the_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

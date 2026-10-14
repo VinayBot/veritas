@@ -14,7 +14,7 @@ from app.core.db import session_scope
 from app.core.tracing import trace_bus
 from app.embeddings.registry import get_embedder
 from app.stores.bm25 import rebuild_bm25_index
-from app.stores.vector.chroma_store import get_vector_store
+from app.stores.vector import get_vector_store
 
 
 async def index_document(doc_id: str, text: str, chunker: Chunker | None = None) -> list[Chunk]:

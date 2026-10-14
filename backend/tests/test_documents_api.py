@@ -93,7 +93,7 @@ async def test_delete_document_removes_chunks_vectors_and_keyword_index(
 ) -> None:
     from app.embeddings.registry import get_embedder
     from app.stores.bm25 import get_bm25_index
-    from app.stores.vector.chroma_store import get_vector_store
+    from app.stores.vector import get_vector_store
 
     doc = await upload_and_wait_ready(
         client,

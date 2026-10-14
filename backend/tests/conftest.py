@@ -117,3 +117,28 @@ async def client() -> AsyncGenerator[AsyncClient]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
+
+
+def _ollama_reachable() -> bool:
+    import httpx
+
+    from app.core.config import get_settings
+
+    try:
+        return httpx.get(f"{get_settings().ollama_base_url}/api/tags", timeout=2.0).is_success
+    except httpx.HTTPError:
+        return False
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Tests marked needs_ollama run against the real local models. Where Ollama is not
+    running (GitHub Actions has no GPU and no multi-GB model downloads per run) they are
+    skipped with a reason rather than failing; everything else, including the embedder,
+    reranker, Presidio and the injection classifier, still runs for real. REQUIRE_OLLAMA=1
+    turns a missing Ollama into failures instead, for a full local run."""
+    marked = [item for item in items if item.get_closest_marker("needs_ollama")]
+    if not marked or os.environ.get("REQUIRE_OLLAMA") == "1" or _ollama_reachable():
+        return
+    skip = pytest.mark.skip(reason="needs a local model through Ollama, which is not reachable")
+    for item in marked:
+        item.add_marker(skip)

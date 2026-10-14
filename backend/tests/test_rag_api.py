@@ -88,6 +88,7 @@ def test_reports_written_before_strategies_map_to_what_they_actually_ran() -> No
     assert strategy_for_report("hybrid", "hybrid") == "hybrid"  # new rows say exactly
 
 
+@pytest.mark.needs_ollama
 async def test_strategies_endpoint_reports_live_availability_per_document(
     client: AsyncClient,
 ) -> None:
@@ -139,6 +140,7 @@ async def test_switching_the_default_is_instant_and_applies_to_the_next_question
     assert bad.status_code == 422 and bad.json()["code"] == "invalid_strategy"
 
 
+@pytest.mark.needs_ollama
 async def test_per_question_strategy_overrides_the_default_and_is_recorded(
     client: AsyncClient,
 ) -> None:
@@ -203,6 +205,7 @@ async def test_normal_questions_get_a_quick_answer_and_deep_ones_a_longer_answer
     assert _events(bad.text)[0][0] == "error"
 
 
+@pytest.mark.needs_ollama
 async def test_a_strategy_that_needs_an_index_builds_it_with_real_progress_then_runs(
     client: AsyncClient,
 ) -> None:

@@ -32,7 +32,7 @@ from app.profiler.features import DocumentProfile, profile_document
 from app.profiler.tournament import CandidateResult, TournamentResult, run_tournament
 from app.retrieval.indexing import index_document
 from app.stores.graph.networkx_store import get_graph_store
-from app.stores.vector.chroma_store import get_vector_store
+from app.stores.vector import get_vector_store
 
 MIN_CHUNKS_FOR_TOURNAMENT = 3
 AUTO_EVAL_TARGET_SIZE = 8

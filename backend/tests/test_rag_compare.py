@@ -123,6 +123,7 @@ async def test_estimate_states_questions_strategies_and_where_each_latency_came_
     assert not body["all_cached"]
 
 
+@pytest.mark.needs_ollama
 async def test_a_real_single_question_comparison_is_measured_then_served_from_cache(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -20,7 +20,7 @@ from app.core.db import session_scope
 from app.embeddings.registry import get_embedder
 from app.ingestion.models import Document
 from app.llm.models_config import get_model_config
-from app.stores.vector.chroma_store import get_vector_store
+from app.stores.vector import get_vector_store
 
 
 class IndexMismatchError(Exception):

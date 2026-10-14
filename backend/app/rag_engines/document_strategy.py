@@ -223,4 +223,4 @@ async def reconcile_interrupted_measurements() -> int:
             .values(measure_status="failed", measure_error="Interrupted by a server restart.")
         )
         await session.commit()
-    return result.rowcount or 0
+    return int(getattr(result, "rowcount", 0) or 0)

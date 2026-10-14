@@ -29,6 +29,7 @@ async def test_verifier_accepts_a_well_supported_answer() -> None:
     assert "unsupported_claims" in result
 
 
+@pytest.mark.needs_ollama
 async def test_verifier_flags_unsupported_claim_and_requests_revision() -> None:
     state = {
         "session_id": "s1",

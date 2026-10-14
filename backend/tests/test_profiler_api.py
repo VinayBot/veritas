@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from conftest import wait_for_document
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -227,6 +228,7 @@ async def test_profile_endpoint_404_for_unknown_document(client: AsyncClient) ->
     assert resp.json()["code"] == "document_not_found"
 
 
+@pytest.mark.needs_ollama
 async def test_advisor_run_then_get_round_trip(client: AsyncClient) -> None:
     document_id = await _upload_handbook(client)
 
@@ -283,6 +285,7 @@ async def test_advisor_decision_rejects_invalid_value(client: AsyncClient) -> No
     assert resp.json()["code"] == "invalid_decision"
 
 
+@pytest.mark.needs_ollama
 async def test_advisor_decision_ignore_leaves_index_untouched(client: AsyncClient) -> None:
     document_id = await _upload_handbook(client)
     await client.post(f"/api/v1/documents/{document_id}/advisor/run")
@@ -296,6 +299,7 @@ async def test_advisor_decision_ignore_leaves_index_untouched(client: AsyncClien
     assert await _chunk_ids(document_id) == before
 
 
+@pytest.mark.needs_ollama
 async def test_advisor_decision_accept_reindexes_with_suggested_config(
     client: AsyncClient,
 ) -> None:

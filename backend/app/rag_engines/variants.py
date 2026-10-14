@@ -22,7 +22,7 @@ from app.embeddings.registry import get_embedder
 from app.ingestion.models import Document
 from app.rag_engines.registry import INDEX_VARIANTS
 from app.stores.bm25 import rebuild_bm25_index
-from app.stores.vector.chroma_store import get_vector_store
+from app.stores.vector import get_vector_store
 
 Progress = Callable[[float, str], Awaitable[None]]
 

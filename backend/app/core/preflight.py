@@ -164,7 +164,7 @@ async def warm_ollama_models() -> str:
 def check_vector_store_write() -> str:
     import numpy as np
 
-    from app.stores.vector.chroma_store import get_vector_store
+    from app.stores.vector import get_vector_store
 
     store = get_vector_store()
     probe_id = "__preflight_probe__"

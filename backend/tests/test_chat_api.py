@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from conftest import wait_for_document, wait_for_enrichment
 from httpx import AsyncClient
 
@@ -134,6 +135,7 @@ async def test_report_not_found_returns_404(client: AsyncClient) -> None:
     assert resp.json()["code"] == "report_not_found"
 
 
+@pytest.mark.needs_ollama
 async def test_chat_response_carries_a_real_estimated_quality_report(client: AsyncClient) -> None:
     document_id = await _upload_policy_doc(client)
     resp = await client.post(

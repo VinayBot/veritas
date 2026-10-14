@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from conftest import wait_for_document
 from httpx import AsyncClient
 
@@ -20,6 +21,7 @@ async def _upload_policy_doc(client: AsyncClient) -> str:
     return document_id
 
 
+@pytest.mark.needs_ollama
 async def test_generate_dataset_endpoint_returns_real_items(client: AsyncClient) -> None:
     document_id = await _upload_policy_doc(client)
     resp = await client.post(
@@ -33,6 +35,7 @@ async def test_generate_dataset_endpoint_returns_real_items(client: AsyncClient)
     assert sum(body["categories"].values()) == body["item_count"]
 
 
+@pytest.mark.needs_ollama
 async def test_generate_dataset_endpoint_versions_increment(client: AsyncClient) -> None:
     document_id = await _upload_policy_doc(client)
     first = await client.post(
@@ -55,6 +58,7 @@ async def test_generate_dataset_endpoint_422_for_document_with_no_chunks(
     assert resp.json()["code"] == "dataset_empty"
 
 
+@pytest.mark.needs_ollama
 async def test_run_benchmark_endpoint_scores_real_configs(client: AsyncClient) -> None:
     document_id = await _upload_policy_doc(client)
     resp = await client.post(
@@ -109,6 +113,7 @@ async def test_get_benchmark_endpoint_404_for_unknown_id(client: AsyncClient) ->
     assert resp.json()["code"] == "benchmark_not_found"
 
 
+@pytest.mark.needs_ollama
 async def test_runs_on_the_same_eval_set_are_comparable_and_say_so(client: AsyncClient) -> None:
     """Two runs must answer the same questions for a delta between them to mean anything."""
     document_id = await _upload_policy_doc(client)
@@ -143,6 +148,7 @@ async def test_unknown_strategy_is_rejected_before_anything_runs(client: AsyncCl
     assert resp.json()["code"] == "invalid_strategy"
 
 
+@pytest.mark.needs_ollama
 async def test_benchmark_runs_as_a_background_job_with_real_progress(client: AsyncClient) -> None:
     from app.core import jobs
 

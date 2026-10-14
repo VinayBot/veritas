@@ -60,6 +60,7 @@ dev = [
     "pre-commit>=3.8",
     "pypdf>=6.20.0",
     "reportlab>=5.0.1",
+    "qdrant-client>=1.11",
 ]
 
 [tool.pytest.ini_options]
@@ -70,6 +71,9 @@ addopts = "--cov=app --cov-report=term-missing"
 # sys.path, so plain `from conftest import helper` across test files needs this explicit entry
 # instead — the standard fix for shared test utilities living next to conftest.py.
 pythonpath = ["tests"]
+markers = [
+    "needs_ollama: calls a local model through Ollama; skipped when Ollama is not reachable (CI)",
+]
 
 [tool.coverage.run]
 source = ["app"]

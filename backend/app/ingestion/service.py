@@ -67,12 +67,12 @@ ENRICHMENT_STAGES = ("graph", "profile")
 # Strong references to detached ingestion tasks — asyncio only holds a *weak* reference to a
 # task created with create_task, so without this a task can be silently garbage-collected
 # mid-flight. Discarded automatically once the task finishes (success or failure).
-_background_tasks: set[asyncio.Task[None]] = set()
+_background_tasks: set[asyncio.Task[Any]] = set()
 # Enrichment (graph, profile) per document, so deleting a document can stop it first.
-_enrichment_tasks: dict[str, asyncio.Task[None]] = {}
+_enrichment_tasks: dict[str, asyncio.Task[Any]] = {}
 
 
-def _track(task: asyncio.Task[None]) -> None:
+def _track(task: asyncio.Task[Any]) -> None:
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
 
@@ -673,7 +673,7 @@ async def delete_document(document_id: str) -> dict[str, int]:
     from app.chunking.models import ChunkRow
     from app.stores.bm25 import rebuild_bm25_index
     from app.stores.graph.networkx_store import get_graph_store
-    from app.stores.vector.chroma_store import delete_document_everywhere
+    from app.stores.vector import delete_document_everywhere
 
     doc = await get_document(document_id)
     if doc is None:

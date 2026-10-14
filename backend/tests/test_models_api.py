@@ -20,6 +20,7 @@ async def _restore_selection():
         await runtime_settings.set_value(key, None)
 
 
+@pytest.mark.needs_ollama
 async def test_local_models_lists_what_is_really_installed_with_roles(client: AsyncClient) -> None:
     body = (await client.get("/api/v1/models/local")).json()
     assert body["ollama"]["status"] == "up"
@@ -56,6 +57,7 @@ async def test_ollama_down_is_reported_exactly_with_the_command_to_start_it(
     assert body["chat_models"] == []
 
 
+@pytest.mark.needs_ollama
 async def test_switching_the_generator_applies_to_the_next_answer(client: AsyncClient) -> None:
     doc = await upload_and_wait_ready(client, "handbook.md", DOC, "text/markdown")
     catalog = (await client.get("/api/v1/models/local")).json()
@@ -82,6 +84,7 @@ async def test_switching_the_generator_applies_to_the_next_answer(client: AsyncC
     assert reset.json()["selection"]["generator"] == current
 
 
+@pytest.mark.needs_ollama
 async def test_invalid_pairings_are_blocked_with_the_reason(client: AsyncClient) -> None:
     guard = get_model_config().guard
     as_generator = await client.put("/api/v1/models/selection", json={"generator": guard})
@@ -162,6 +165,7 @@ async def test_changing_the_embedding_model_blocks_search_until_the_document_is_
     assert "event: token" in answered.text and "event: error" not in answered.text
 
 
+@pytest.mark.needs_ollama
 async def test_a_saved_choice_of_a_model_that_was_removed_falls_back_to_the_default(
     client: AsyncClient,
 ) -> None:

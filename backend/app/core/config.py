@@ -87,7 +87,7 @@ class Settings(BaseSettings):
 
     # --- Vector / graph / cache stores ---
     vector_store: str = Field(default="chroma", alias="VECTOR_STORE")  # "chroma" | "qdrant"
-    qdrant_url: str = Field(default="http://localhost:6333", alias="QDRANT_URL")
+    qdrant_url: str = Field(default="", alias="QDRANT_URL")  # empty: embedded, on disk
     graph_store: str = Field(default="networkx", alias="GRAPH_STORE")  # "networkx" | "neo4j"
     neo4j_uri: str = Field(default="bolt://localhost:7687", alias="NEO4J_URI")
     neo4j_user: str = Field(default="neo4j", alias="NEO4J_USER")

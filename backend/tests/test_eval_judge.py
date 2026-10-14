@@ -39,6 +39,7 @@ async def test_faithfulness_scores_abstention_as_fully_faithful() -> None:
     assert score == 1.0
 
 
+@pytest.mark.needs_ollama
 async def test_faithfulness_scores_well_supported_answer_highly() -> None:
     score = await score_faithfulness(
         "Employees accrue two vacation days per month.",
@@ -47,6 +48,7 @@ async def test_faithfulness_scores_well_supported_answer_highly() -> None:
     assert score >= 0.7
 
 
+@pytest.mark.needs_ollama
 async def test_faithfulness_scores_contradicted_answer_low() -> None:
     score = await score_faithfulness(
         "Employees get unlimited vacation and a free car every year.",
@@ -55,6 +57,7 @@ async def test_faithfulness_scores_contradicted_answer_low() -> None:
     assert score <= 0.4
 
 
+@pytest.mark.needs_ollama
 async def test_relevancy_scores_on_topic_answer_highly() -> None:
     score = await score_relevancy(
         "Employees accrue two vacation days per month.", "How much vacation do employees get?"
@@ -62,6 +65,7 @@ async def test_relevancy_scores_on_topic_answer_highly() -> None:
     assert score >= 0.6
 
 
+@pytest.mark.needs_ollama
 async def test_correctness_matches_semantically_equivalent_phrasing() -> None:
     score = await score_correctness(
         "Workers earn 2 days of PTO monthly.",

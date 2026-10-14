@@ -164,7 +164,7 @@ async def prepare_strategy(strategy_id: str, body: PrepareRequest) -> StartedJob
         raise _unknown(exc) from exc
     document = await _document(body.document_id)
     state = await availability.check(spec, document, await availability.llm_state())
-    if body.rebuild and spec.plan.graph:
+    if body.rebuild and spec.plan is not None and spec.plan.graph:
         # Read the graph again from scratch: after a failed first pass, or to pick up a
         # better extraction model.
         state = availability.Availability(available=False, reason=None, action="build_graph")

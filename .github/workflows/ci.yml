@@ -32,8 +32,18 @@ jobs:
         run: uv run ruff format --check .
       - name: mypy
         run: uv run mypy app
+      # Tests marked needs_ollama call a local model and are skipped here with a reason (no
+      # Ollama on GitHub runners); the embedder, reranker, Presidio, Docling and the injection
+      # classifier still run for real.
       - name: pytest
         run: uv run pytest
+      - name: Retrieval and ingestion tests on Qdrant (embedded) instead of ChromaDB
+        env:
+          VECTOR_STORE: qdrant
+        run: >-
+          uv run pytest --no-cov tests/test_vector_stores.py tests/test_hybrid_retrieval.py
+          tests/test_retrieval_api.py tests/test_ingestion_service.py tests/test_documents_api.py
+          tests/test_reranker.py tests/test_dedupe.py tests/test_hyde.py
 
   redteam:
     runs-on: ubuntu-latest
@@ -73,7 +83,7 @@ jobs:
         run: npm ci
       - name: Lint
         run: npm run lint
+      - name: Unit tests
+        run: npm test
       - name: Build
         run: npm run build
-
-  # Added once it lands: eval-smoke, a small `make eval` smoke run (Phase 8 — evaluation).

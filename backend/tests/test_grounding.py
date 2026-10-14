@@ -11,6 +11,7 @@ CONTEXT = (
 )
 
 
+@pytest.mark.needs_ollama
 async def test_supported_answer_is_fully_grounded() -> None:
     report = await ground_answer(
         "Employees accrue two paid vacation days per month of service [1]. "
@@ -23,6 +24,7 @@ async def test_supported_answer_is_fully_grounded() -> None:
     assert all(s["supported"] for s in report.sentences)
 
 
+@pytest.mark.needs_ollama
 async def test_an_invented_sentence_is_marked_unsupported_and_lowers_the_score() -> None:
     report = await ground_answer(
         "Employees accrue two paid vacation days per month of service [1]. "
