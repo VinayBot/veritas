@@ -1,5 +1,7 @@
 # Veritas — a dynamic hybrid RAG pipeline that picks the best strategy per document
 
+[![ci](https://github.com/VinayBot/veritas/actions/workflows/ci.yml/badge.svg)](https://github.com/VinayBot/veritas/actions/workflows/ci.yml)
+
 Veritas answers questions about your own documents, with a citation on every claim, and runs
 **entirely on a laptop**: local Hugging Face embeddings, ChromaDB or Qdrant (embedded), an open
 cross-encoder re-ranker, NetworkX or Neo4j for the knowledge graph, local LLMs through Ollama,
