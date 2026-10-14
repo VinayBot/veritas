@@ -28,7 +28,7 @@ reproduce them are in section 9.
 | Best measured result | Agentic RAG passes every production gate: faithfulness 0.87, correctness 0.82, Recall@5 1.00, p95 13.7 s |
 | Safety | 41/42 red-team attacks blocked (97.6%), 1/15 harmless prompts blocked (6.7%), 0 PII values in the index |
 | Retrieval check | 31 hand-written questions over 4 real documents (incl. French and a 61-page handbook): every answer's evidence is in the top 5 |
-| Development history | 41 commits from 11 to 14 October 2026, included in this folder (`git log`) |
+| Development history | More than 40 commits from 11 to 14 October 2026, included in this folder (`git log`) |
 
 ---
 
@@ -323,7 +323,7 @@ each with a regression test:
 - **Reliability.** Ingestion runs as cancellable background jobs with timeouts and retries;
   model calls have a latency budget with fallback; work that does not block chat (graph,
   profiling, measurement) runs at lower priority.
-- **Development history.** 41 commits over four days in this folder's `.git`, each a focused
+- **Development history.** More than 40 commits over four days in this folder's `.git`, each a focused
   change with a descriptive message (`git log --stat`).
 - **Documentation.** `README.md` (overview, topic map, results), `docs/ARCHITECTURE.md`,
   `API.md`, `USAGE.md`, `EVALUATION.md`, `GUARDRAILS.md`, `BENCHMARKS.md` (generated), and
@@ -346,7 +346,7 @@ cd frontend && npx playwright test   # end-to-end, about 15 minutes
 
 | Earlier feedback | In this assignment |
 |---|---|
-| Single commit, no iterative history (Week 1) | 41 focused commits over four days, included in the folder |
+| Single commit, no iterative history (Week 1) | More than 40 focused commits over four days, included in the folder |
 | No Docker or CI (Week 1) | Dockerfiles, docker-compose with profiles, and a five-job CI workflow that passes |
 | N+1 queries (Week 1) | Dashboard and audit statistics are `GROUP BY` / `COUNT` aggregates in single queries; document lists are one query plus a count |
 | No native tool calling (Week 2) | Partly: the agent's planner chooses among four retrieval tools (hybrid search, graph traversal, PII vault lookup, metadata filter) and LangGraph routes to them, but the choice is a validated JSON contract rather than the provider's native tool-calling API |
