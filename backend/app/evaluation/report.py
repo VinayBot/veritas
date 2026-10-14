@@ -18,10 +18,18 @@ def _num(value: float | None, digits: int = 3) -> str:
     return "not measured" if value is None else f"{value:.{digits}f}"
 
 
+def _with_ci(result, name: str) -> str:  # noqa: ANN001
+    value = getattr(result, name, None)
+    if value is None:
+        return "not measured"
+    ci = (result.intervals or {}).get(name)
+    return f"{value:.2f} ({ci[0]:.2f}–{ci[1]:.2f})" if ci else f"{value:.2f}"
+
+
 def _config_row(report: BenchmarkReport, result) -> str:
     if result.skipped_reason:
         return (
-            f"| {result.name} | — | — | — | — | — | — | — | — | — | — "
+            f"| {result.name} | — | — | — | — | — | — | — | — | — | — | — "
             f"| skipped: {result.skipped_reason} |"
         )
     gate = (
@@ -33,8 +41,9 @@ def _config_row(report: BenchmarkReport, result) -> str:
     return (
         f"| {result.name} | {result.n_samples} | {m.get('precision_at_5', 0):.3f} | "
         f"{m.get('recall_at_5', 0):.3f} | {m.get('mrr', 0):.3f} | {m.get('ndcg_at_5', 0):.3f} | "
-        f"{_num(result.faithfulness)} | "
-        f"{_num(result.answer_relevancy)} | {_num(result.correctness)} | "
+        f"{_with_ci(result, 'faithfulness')} | "
+        f"{_num(result.answer_relevancy)} | {_with_ci(result, 'correctness')} | "
+        f"{_with_ci(result, 'answer_f1')} | "
         f"{result.p50_latency_ms:.0f} / {result.p95_latency_ms:.0f} | "
         f"{_num(report.production_score(result))} | {gate} |"
     )
@@ -70,9 +79,15 @@ def render_markdown(report: BenchmarkReport) -> str:
         "question is written from one or two chunks, so Precision@5 cannot exceed 0.2–0.4; "
         "Recall@5, MRR and nDCG@5 are the retrieval measures to compare.",
         "",
+        "Faithfulness, correctness and answer F1 show the mean and, in brackets, its 95% "
+        "bootstrap confidence interval: two strategies whose intervals overlap are not shown "
+        "to differ by this sample. Answer F1 is SQuAD-style word overlap with the known "
+        "answer; it needs no judge model, so it cannot share the judge's biases, but it "
+        "under-credits correct paraphrases.",
+        "",
         "| Strategy | n | P@5 | Recall@5 | MRR | nDCG@5 | Faithfulness | Relevancy "
-        "| Correctness | p50 / p95 (ms) | Score | Gates |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| Correctness | Answer F1 | p50 / p95 (ms) | Score | Gates |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for result in report.config_results:
         lines.append(_config_row(report, result))
@@ -96,6 +111,24 @@ def render_markdown(report: BenchmarkReport) -> str:
             f"(gates: faithfulness ≥ 0.85, injection block rate ≥ 95%, 0 PII leaks, "
             f"p95 ≤ {15_000}ms)."
         )
+    agreement = report.judge_agreement
+    if agreement:
+        lines += [
+            "",
+            "## Do two different judges agree?",
+            "",
+            f"The judged scores above come from `{agreement['first_judge']}`, the same model "
+            "that writes the answers. To check they are not just that model's preference, "
+            f"`{agreement['second_judge']}` (a different model family) re-scored the "
+            f"correctness of the same {agreement['n']} answers against the same known answers:",
+            "",
+            "| Mean absolute difference (0–1) | Pearson r | Same verdict (correct at ≥ 0.7) "
+            "| Cohen's κ |",
+            "|---|---|---|---|",
+            f"| {agreement['mean_absolute_difference']:.3f} | "
+            f"{_num(agreement['pearson_r'])} | {agreement['verdict_agreement']:.0%} | "
+            f"{_num(agreement['cohen_kappa'])} |",
+        ]
     lines += [
         "",
         "## Selection criteria for production",

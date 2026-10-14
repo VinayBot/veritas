@@ -122,6 +122,7 @@ async def run_and_save_benchmark(
     checkpoint: Checkpoint | None = None,
     max_questions: int | None = None,
     max_agent_questions: int | None = None,
+    second_judge: str | None = None,
 ) -> tuple[BenchmarkRun, BenchmarkReport]:
     """`write_doc` rewrites docs/BENCHMARKS.md from this run. Only `make eval` asks for that;
     a run started from the UI never touches a tracked file."""
@@ -139,6 +140,13 @@ async def run_and_save_benchmark(
         max_questions=max_questions,
         max_agent_questions=max_agent_questions,
     )
+    if second_judge:
+        from app.evaluation.agreement import measure_agreement
+        from app.evaluation.judge import judge_model
+
+        await progress(0.97, "Re-scoring with a second judge model")
+        agreement = await measure_agreement(report, judge_model(), second_judge)
+        report.judge_agreement = agreement.to_dict() if agreement else None
     if write_doc:
         write_benchmarks_doc(report)
 

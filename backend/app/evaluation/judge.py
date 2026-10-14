@@ -49,11 +49,11 @@ def judge_model() -> str:
     return get_model_config().judge
 
 
-async def _score_0_to_10(prompt: str) -> float | None:
+async def _score_0_to_10(prompt: str, model: str | None = None) -> float | None:
     """None means "not measured": the judge model was unreachable or its reply contained no
     number. Callers must carry that through — a made-up midpoint would look like a result."""
     try:
-        raw = await complete(prompt, model=judge_model(), max_tokens=10, temperature=0.0)
+        raw = await complete(prompt, model=model or judge_model(), max_tokens=10, temperature=0.0)
     except LlmUnavailableError:
         return None
     match = _SCORE_RE.search(raw)
@@ -72,9 +72,12 @@ async def score_relevancy(answer: str, question: str) -> float | None:
     return await _score_0_to_10(_RELEVANCY_PROMPT.format(question=question, answer=answer))
 
 
-async def score_correctness(answer: str, ground_truth: str, question: str = "") -> float | None:
+async def score_correctness(
+    answer: str, ground_truth: str, question: str = "", model: str | None = None
+) -> float | None:
     return await _score_0_to_10(
-        _CORRECTNESS_PROMPT.format(question=question, ground_truth=ground_truth, answer=answer)
+        _CORRECTNESS_PROMPT.format(question=question, ground_truth=ground_truth, answer=answer),
+        model=model,
     )
 
 

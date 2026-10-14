@@ -135,3 +135,41 @@ def test_generated_questions_must_not_name_their_excerpts():
     ):
         assert _MENTIONS_EXCERPT_RE.search(leaked)
     assert not _MENTIONS_EXCERPT_RE.search("Who is known as the father of artificial intelligence?")
+
+
+def test_token_f1_and_bootstrap_intervals():
+    from app.evaluation.stats import bootstrap_ci, pearson, token_f1
+
+    assert token_f1("Four business days [1].", "four business days") == 1.0
+    assert token_f1("Three years", "The warranty lasts three years.") == pytest.approx(0.67, 0.01)
+    assert token_f1("Paris", "Lisbon") == 0.0
+    low, high = bootstrap_ci([0.6, 0.8, 1.0, 0.4, 0.9, 0.7])
+    assert low < 0.73 < high
+    assert bootstrap_ci([1.0]) is None
+    assert bootstrap_ci([0.6, 0.8, 1.0]) == bootstrap_ci([0.6, 0.8, 1.0])  # seeded
+    assert pearson([1, 2, 3], [2, 4, 6]) == pytest.approx(1.0)
+
+
+async def test_judge_agreement_compares_two_judges_on_the_same_answers(monkeypatch):
+    from app.evaluation import agreement
+    from app.evaluation.benchmark import BenchmarkReport, ConfigResult
+
+    samples = [
+        {"answer": a, "reference_answer": r, "question": "q", "correctness": c}
+        for a, r, c in [
+            ("Four days.", "Four business days.", 0.9),
+            ("Ten days.", "Four business days.", 0.1),
+            ("Two hours.", "Two hours.", 1.0),
+            ("Not covered.", "Not answerable from this document.", 1.0),  # left out
+        ]
+    ]
+    result = ConfigResult("hybrid", {}, None, None, None, 0, 0, 4, samples=samples)
+    second = iter([0.8, 0.2, 0.9])
+
+    async def fake_score(*_args, **_kwargs):
+        return next(second)
+
+    monkeypatch.setattr(agreement, "score_correctness", fake_score)
+    got = await agreement.measure_agreement(BenchmarkReport("d", [result]), "a", "b")
+    assert got is not None and got.n == 3
+    assert got.verdict_agreement == 1.0 and got.mean_absolute_difference == pytest.approx(0.1)

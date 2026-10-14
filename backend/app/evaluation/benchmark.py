@@ -32,8 +32,9 @@ from app.chunking.models import ChunkRow
 from app.core.config import get_settings
 from app.core.db import session_scope
 from app.evaluation.datasets import EvalItem
-from app.evaluation.judge import citation_validity, evidence_for, score_all
+from app.evaluation.judge import citation_validity, evidence_for, says_not_covered, score_all
 from app.evaluation.metrics.retrieval import RetrievalMetricsAccumulator
+from app.evaluation.stats import bootstrap_ci, token_f1
 from app.ingestion.models import Document
 from app.privacy.detector import detect
 from app.rag_engines import availability
@@ -94,6 +95,10 @@ class ConfigResult:
     samples: list[dict[str, Any]] = field(default_factory=list)
     """Set when the strategy could not run for this document; the metrics are then empty."""
     skipped_reason: str | None = None
+    """Judge-free: mean token F1 of the answers against the known answers."""
+    answer_f1: float | None = None
+    """95% bootstrap intervals for the means, by metric name: [low, high]."""
+    intervals: dict[str, list[float]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -106,6 +111,8 @@ class BenchmarkReport:
     """None when the red-team suite was not part of this run."""
     injection_block_rate: float | None = None
     pii_leak_count: int | None = None
+    """Set by `make eval`: a second judge model's agreement with the first (see agreement.py)."""
+    judge_agreement: dict | None = None
 
     def production_score(self, result: ConfigResult) -> float | None:
         """None when the inputs it needs were not measured — a score built on defaults would
@@ -251,6 +258,7 @@ async def evaluate_strategy(
     accumulator = RetrievalMetricsAccumulator(k=5)
     latencies: list[float] = []
     scores: dict[str, list[float]] = {"faithfulness": [], "relevancy": [], "correctness": []}
+    f1_scores: list[float] = []
     citation_scores: list[float] = []
     prompt_tokens: list[float] = []
     completion_tokens: list[float] = []
@@ -286,6 +294,12 @@ async def evaluate_strategy(
         relevancy = judged["relevancy"]
         correctness = judged["correctness"]
         citation_score = citation_validity(turn.answer, len(turn.retrieved) or 1)
+        # An unanswerable question is answered correctly by declining.
+        if says_not_covered(item.ground_truth_answer):
+            answer_f1 = 1.0 if says_not_covered(turn.answer) else 0.0
+        else:
+            answer_f1 = token_f1(turn.answer, item.ground_truth_answer)
+        f1_scores.append(answer_f1)
         for key, value in (
             ("faithfulness", faithfulness),
             ("relevancy", relevancy),
@@ -315,6 +329,7 @@ async def evaluate_strategy(
                 "faithfulness": faithfulness,
                 "relevancy": relevancy,
                 "correctness": correctness,
+                "answer_f1": round(answer_f1, 3),
                 "citation_validity": citation_score,
             }
         )
@@ -336,6 +351,12 @@ async def evaluate_strategy(
         avg_completion_tokens=_mean(completion_tokens),
         avg_llm_calls=_mean(llm_calls),
         samples=samples,
+        answer_f1=_mean(f1_scores),
+        intervals={
+            name: list(ci)
+            for name, values in (*scores.items(), ("answer_f1", f1_scores))
+            if (ci := bootstrap_ci(values)) is not None
+        },
     )
 
 

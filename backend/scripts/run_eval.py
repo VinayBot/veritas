@@ -30,6 +30,8 @@ PUBLISHED_STRATEGIES = (
     "graph_rag",
     "agentic",
 )
+# A judge from another model family, to check the main judge's scores (agreement.py).
+SECOND_JUDGE = "ollama/gemma2:2b"
 PUBLISHED_QUESTIONS = 12
 PUBLISHED_AGENT_QUESTIONS = 6
 
@@ -114,6 +116,7 @@ async def main() -> int:
         write_doc=True,
         max_questions=PUBLISHED_QUESTIONS,
         max_agent_questions=PUBLISHED_AGENT_QUESTIONS,
+        second_judge=SECOND_JUDGE,
     )
 
     print()
