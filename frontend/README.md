@@ -1,32 +1,20 @@
-# React + TypeScript + Vite
+# Veritas frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React 19 + TypeScript + Vite, styled with Tailwind v4. Three tabs, all on live backend data:
+**Workspace** (`src/pages/workspace-page.tsx`), **Architecture** (`architecture-page.tsx`) and
+**Evaluation** (`evaluation-page.tsx`), plus the landing page.
 
-Currently, two official plugins are available:
+- `src/lib/api/`: typed API client (REST, server-sent events for streamed answers, WebSocket
+  for live traces); types mirror the backend's Pydantic schemas.
+- `src/components/`: workspace, compare, architecture, evaluation, charts and a small design
+  system in `ui/`.
+- `src/store/`: Zustand state (chat history is kept per document in the browser).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev     # http://localhost:5173/app, proxies /api and /ws to the backend on :8000
+npm test        # Vitest unit tests
+npm run lint    # oxlint
+npm run build   # type-check and production build
+npx playwright test   # end-to-end, see tests/e2e/README.md
 ```
-
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.

@@ -7,6 +7,7 @@ which this environment doesn't have — see docs/DECISIONS.md.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -47,8 +48,44 @@ _AADHAAR_PATTERN = Pattern(name="aadhaar", regex=r"\b\d{4}\s?\d{4}\s?\d{4}\b", s
 _PAN_INDIA_PATTERN = Pattern(name="pan_india", regex=r"\b[A-Z]{5}[0-9]{4}[A-Z]\b", score=0.6)
 
 
+# Presidio's own email recognizer validates the top-level domain, so internal domains
+# (".corp", ".local", the reserved ".example") were not masked.
+_EMAIL_PATTERN = Pattern(
+    name="email_any_domain",
+    regex=r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b",
+    score=0.9,
+)
+# A lookahead, so candidates overlap: in "Contact Elena Petrova" the pair "Contact Elena" must
+# not consume "Elena".
+_GIVEN_NAME_RE = re.compile(r"\b(?=([A-Z][a-z]+)\s+([A-Z][a-z]+(?:-[A-Z][a-z]+)?)\b)")
+
+
+class GivenNameRecognizer(EntityRecognizer):
+    """A known given name followed by a capitalised surname is a PERSON. Covers names the
+    small spaCy model misses or calls an organisation; see app/privacy/given_names.py."""
+
+    def __init__(self) -> None:
+        super().__init__(supported_entities=["PERSON"], name="GivenNameRecognizer")
+
+    def load(self) -> None:
+        return None
+
+    def analyze(self, text: str, entities: list[str], nlp_artifacts: object = None) -> list:
+        from app.privacy.given_names import GIVEN_NAMES
+
+        if "PERSON" not in entities:
+            return []
+        return [
+            RecognizerResult("PERSON", m.start(1), m.end(2), 0.7)
+            for m in _GIVEN_NAME_RE.finditer(text)
+            if m.group(1).lower() in GIVEN_NAMES
+        ]
+
+
 def _custom_recognizers() -> list[EntityRecognizer]:
     return [
+        PatternRecognizer(supported_entity="EMAIL_ADDRESS", patterns=[_EMAIL_PATTERN]),
+        GivenNameRecognizer(),
         PatternRecognizer(
             supported_entity="AADHAAR",
             patterns=[_AADHAAR_PATTERN],

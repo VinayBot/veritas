@@ -86,6 +86,16 @@ per stage, measured benchmark results), the **Knowledge graph** (explore it, or 
 question and watch the traversal) and **Safety** (every guardrail decision, the audit log and
 the red-team suite). See [docs/USAGE.md](docs/USAGE.md).
 
+## Screenshots
+
+| Workspace: a cited answer, its grounding, and the strategy measured best for this document | Compare: every strategy on the same questions, scores side by side |
+|---|---|
+| ![Workspace](docs/screenshots/workspace.png) | ![Compare](docs/screenshots/compare.png) |
+| **Architecture: drawn from the code, with live health probes** | **Knowledge graph: entities and relations; ask it a question** |
+| ![Architecture](docs/screenshots/architecture.png) | ![Knowledge graph](docs/screenshots/knowledge-graph.png) |
+| **Evaluation: usage, quality and latency from real questions** | **Safety: every guardrail decision and the red-team suite** |
+| ![Evaluation](docs/screenshots/evaluation-usage.png) | ![Safety](docs/screenshots/safety.png) |
+
 ## Engineering
 
 - **CI** (`.github/workflows/ci.yml`): ruff, ruff format, mypy on `app/`, the pytest suite,

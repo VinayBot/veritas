@@ -8,5 +8,4 @@
 
 Not yet populated, per the original build brief: a messy/OCR'd PDF containing PII (to exercise
 the refiner's quality-repair path and the PII vault's non-plain-text extraction together), and
-a curated list of demo URLs for the scraper. Left as an honest gap rather than fabricated —
-see docs/VALIDATION_REPORT.md.
+a curated list of demo URLs for the scraper. Left as an honest gap rather than fabricated.

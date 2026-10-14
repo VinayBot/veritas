@@ -851,7 +851,7 @@ remaining phases, tracked as it's built rather than promised upfront.)
   modes for the Architecture tab. None of these were built this phase. What *was* built is a
   real, working six-screen app plus a landing page, with every number and animation driven by
   genuine backend calls — prioritized over the more elaborate items given the remaining time in
-  this session. See docs/VALIDATION_REPORT.md for the complete, itemized honest accounting.
+  this session. That build's itemized validation report has since been retired; the README and docs/BENCHMARKS.md hold the current state.
 - **New API client (`frontend/src/lib/api/`)**: `types.ts` mirrors every backend Pydantic
   schema field-for-field by hand (no shared codegen between FastAPI and the frontend — a
   backend field rename needs the matching manual edit here, called out explicitly in the file's
@@ -905,7 +905,7 @@ remaining phases, tracked as it's built rather than promised upfront.)
   graph -> guardrails -> evaluation) against a real backend, asserting on real rendered content
   at each step and failing on any browser console error. Deliberately does *not* trigger the
   Evaluation tab's actual benchmark run or the Guardrails tab's red-team suite — both already
-  verified by hand (see docs/VALIDATION_REPORT.md) — since either would add several more
+  verified by hand (recorded in that build's validation report) — since either would add several more
   minutes to every CI run for marginal additional coverage over what the backend's own
   `test_evaluation_benchmark.py`/`test_redteam_api.py` already prove.
 - **The dev-server port the E2E config binds to (5197) was chosen to deliberately avoid 5173**
@@ -928,7 +928,7 @@ remaining phases, tracked as it's built rather than promised upfront.)
 - **Production bundle is a single ~922KB (295KB gzipped) JS chunk** — `vite build` warns about
   it (`xyflow` + `react-force-graph-2d` + `framer-motion` + `gsap` are all real weight, not
   bloat from anything fake). Not addressed with route-based code-splitting this phase; a real,
-  known optimization opportunity, not a correctness issue — see docs/VALIDATION_REPORT.md.
+  known optimization opportunity, not a correctness issue — recorded in that build's validation report.
 - **A second real bug, caught specifically by the dual-theme screenshot pass, not by the E2E
   flow test that ran moments earlier:** the Architecture tab's xyflow diagram rendered
   completely blank — zero visible nodes, though `document.querySelectorAll('.react-flow__node')`
@@ -954,7 +954,7 @@ remaining phases, tracked as it's built rather than promised upfront.)
   the ingested document and its real Stepper state (correctly re-fetched from `documentId` +
   trace history) but an empty chat pane, even though the underlying `ChatReport` is still fully
   persisted server-side and reachable via `GET /reports/{id}`. Not fixed this session —
-  recorded as a known limitation in docs/VALIDATION_REPORT.md rather than silently worked
+  recorded as a known limitation in that build's validation report rather than silently worked
   around in the verification script that found it.
 
 ## Ingestion reliability incident — async job state machine (docs/TROUBLESHOOTING.md)
@@ -1222,7 +1222,7 @@ New multi-section brief landed covering: Fix 1 (chat hang + chat vanishes on tab
 
 ## Overhaul: three tabs, strategy registry, live streaming, memory-lean models
 
-Supersedes the navigation decisions in `docs/OVERHAUL_PLAN.md` (D1 and the six-tab layout);
+Supersedes the earlier overhaul plan's navigation decisions (D1 and the six-tab layout);
 the plan's addendum records what changed after it was approved.
 
 **Three tabs, not six.** Workspace, Architecture, Evaluation. Dashboard, Knowledge Graph and

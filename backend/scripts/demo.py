@@ -5,10 +5,8 @@ previous stub comment said it was waiting on already exist — this just wires t
 the bundled Northwind PDF, waits for ingestion AND background enrichment (graph/profile) to
 finish so the Knowledge Graph has real entities, then runs a real (fast, 2-config) benchmark and
 a real Advisor tournament so the Evaluation page's run history and chunking-strategy table are
-populated too. Prints the resulting document_id — the frontend's document selection is
-per-browser-session state with no persistence (a known, separate gap — see
-docs/VALIDATION_REPORT.md), so this script seeds real server-side data for API-level
-exploration/demos; it can't reach into a fresh browser tab and select a document for you.
+populated too. Prints the resulting document_id; it appears in the UI's document switcher,
+which lists every ingested document.
 """
 
 from __future__ import annotations

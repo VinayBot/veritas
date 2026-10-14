@@ -77,3 +77,21 @@ def _extract_tokens(text: str) -> list[str]:
     import re
 
     return re.findall(r"<[A-Z_]+_[0-9a-f]{6}>", text)
+
+
+def test_names_the_small_ner_model_misses_are_still_masked() -> None:
+    """spaCy's small model found no person in "Contact Elena Petrova" and called
+    "Elena Petrova's" an organisation; both reached the sample's knowledge graph unmasked."""
+    from app.privacy.detector import detect
+
+    for text in ("Contact Elena Petrova, Head of Global Compliance.", "Elena Petrova's team."):
+        assert ("PERSON", "Elena Petrova") in [(e.entity_type, e.text) for e in detect(text)]
+    assert detect("Remote Work Policy. Business Travel needs Global Compliance approval.") == []
+
+
+def test_emails_on_internal_domains_are_masked() -> None:
+    from app.privacy.detector import detect
+
+    text = "Write to priya.sharma@northwind-tech.example"
+    found = [(e.entity_type, e.text) for e in detect(text)]
+    assert found == [("EMAIL_ADDRESS", "priya.sharma@northwind-tech.example")]

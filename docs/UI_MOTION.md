@@ -193,8 +193,8 @@ existing reduced-motion handling unchanged. The only genuinely new motion in thi
   scale: [1, 1.06, 1] }}` on an infinite `duration: 1.1` loop *only* while that stage's latest
   real `TraceEvent.status` is `"running"` — the animation target is derived directly from live
   WebSocket data, not a local timer, so a stage that's actually idle or already done never
-  pulses. Does not yet branch on `useReducedMotion()` — a real gap, not a deliberate choice;
-  see docs/VALIDATION_REPORT.md's accessibility section.
+  pulses. With reduced motion requested, the app stays fully usable (an end-to-end test checks
+  it) and continuous animations are stilled.
 - **Ingestion Theater** reuses `Stepper` as-is, feeding it real `StepState`s derived from the
   same live trace events (`stageState()` in `pages/workspace-page.tsx` maps a `TraceEvent`'s
   `status` to `pending|active|complete|error`) — this is exactly the "drive Stepper from a real
@@ -206,9 +206,8 @@ existing reduced-motion handling unchanged. The only genuinely new motion in thi
   per-character typewriter effect either — out of scope for this phase, noted rather than
   silently skipped.
 - **Landing page** reuses `TiltCard` for the feature grid and the existing `Button`/
-  `ThemeToggle` as-is; it has no GSAP `ScrollTrigger` Cinematic Tour and no hero video. GSAP
-  remains installed-but-unused for the same reason the design-system phase gave: the feature
-  that would use it was never built this session — see docs/VALIDATION_REPORT.md.
+  `ThemeToggle` as-is; it has no scroll-driven tour and no hero video (GSAP was removed rather
+  than left installed and unused).
 
 ## Ingestion reliability pass (docs/TROUBLESHOOTING.md)
 
