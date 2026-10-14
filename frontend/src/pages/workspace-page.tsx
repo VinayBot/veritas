@@ -434,7 +434,7 @@ export function WorkspacePage() {
         >
           <Upload className="size-7 text-accent" aria-hidden="true" />
           <p className="font-medium text-foreground">{uploading ? 'Uploading…' : 'Drop a document here, or click to browse'}</p>
-          <p className="text-xs text-muted-foreground">PDF, DOCX, PPTX, HTML, Markdown, TXT, CSV, EML, RTF · up to 25 MB</p>
+          <p className="text-xs text-muted-foreground">PDF, DOCX, PPTX, XLSX, HTML, Markdown, TXT, CSV, EML, RTF, DOC, XLS · up to 25 MB</p>
           <input
             ref={fileInputRef}
             type="file"

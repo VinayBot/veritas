@@ -17,6 +17,7 @@ _FACTORIES: dict[str, Callable[[], Parser]] = {
     ".pdf": DoclingParser,
     ".docx": DoclingParser,
     ".pptx": DoclingParser,
+    ".xlsx": DoclingParser,
     ".png": DoclingParser,
     ".jpg": DoclingParser,
     ".jpeg": DoclingParser,

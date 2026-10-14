@@ -49,7 +49,7 @@ const BY_CODE: Record<string, Omit<ExplainedError, 'raw'>> = {
   unsupported_format: {
     title: 'That file type is not supported',
     explanation: 'No parser is registered for this extension.',
-    fix: 'Use PDF, DOCX, PPTX, HTML, Markdown, TXT, CSV, EML or RTF.',
+    fix: 'Use PDF, DOCX, PPTX, XLSX, HTML, Markdown, TXT, CSV, EML, RTF, or legacy DOC/XLS.',
   },
   file_too_large: {
     title: 'That file is too large',
