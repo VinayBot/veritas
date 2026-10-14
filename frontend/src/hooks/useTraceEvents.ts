@@ -1,3 +1,4 @@
+import { authQuery } from '@/lib/api/client'
 import { useEffect, useRef, useState } from 'react'
 import type { TraceEvent } from '@/lib/api/types'
 
@@ -52,7 +53,7 @@ export function useTraceEvents(
     const connect = () => {
       setSocket('connecting')
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      ws = new WebSocket(`${protocol}//${window.location.host}/ws/trace/${sessionId}`)
+      ws = new WebSocket(`${protocol}//${window.location.host}/ws/trace/${sessionId}${authQuery()}`)
 
       ws.onopen = () => {
         attempt = 0

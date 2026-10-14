@@ -111,6 +111,10 @@ class Settings(BaseSettings):
     client_rate_limit_per_minute: int = Field(default=60, alias="CLIENT_RATE_LIMIT_PER_MINUTE")
     # Only behind a reverse proxy that sets X-Forwarded-For; otherwise a client could forge it.
     trust_forwarded_for: bool = Field(default=False, alias="TRUST_FORWARDED_FOR")
+    # API keys and roles (app/core/auth.py). Off by default: a local single-user tool.
+    auth_enabled: bool = Field(default=False, alias="AUTH_ENABLED")
+    # Comma-separated key:role pairs, roles viewer | analyst | admin.
+    api_keys: str = Field(default="", alias="API_KEYS")
 
     # --- Chat run reliability (Fix 1) ---
     # 150s/60s (this project's own suggested starting point) measured too tight on live local

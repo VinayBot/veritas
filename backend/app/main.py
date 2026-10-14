@@ -8,7 +8,7 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.agents.runs import reconcile_interrupted_runs
@@ -32,6 +32,7 @@ from app.api.routes.retrieval import router as retrieval_router
 from app.api.routes.runs import router as runs_router
 from app.api.routes.trace import router as trace_router
 from app.core import jobs, runtime_settings
+from app.core.auth import authorize
 from app.core.config import get_settings
 from app.core.db import init_db
 from app.core.errors import AppError, app_error_handler, unhandled_error_handler
@@ -115,22 +116,27 @@ async def add_trace_id(request: Request, call_next):
     return response
 
 
-app.include_router(health_router, prefix="/api/v1")
-app.include_router(architecture_router, prefix="/api/v1")
-app.include_router(documents_router, prefix="/api/v1")
-app.include_router(pii_router, prefix="/api/v1")
-app.include_router(retrieval_router, prefix="/api/v1")
-app.include_router(graph_router, prefix="/api/v1")
-app.include_router(chat_router, prefix="/api/v1")
-app.include_router(runs_router, prefix="/api/v1")
-app.include_router(reports_router, prefix="/api/v1")
-app.include_router(audit_router, prefix="/api/v1")
-app.include_router(redteam_router, prefix="/api/v1")
-app.include_router(profiler_router, prefix="/api/v1")
-app.include_router(evaluation_router, prefix="/api/v1")
-app.include_router(council_router, prefix="/api/v1")
-app.include_router(jobs_router, prefix="/api/v1")
-app.include_router(rag_router, prefix="/api/v1")
-app.include_router(models_router, prefix="/api/v1")
-app.include_router(analytics_router, prefix="/api/v1")
-app.include_router(trace_router)  # /ws/trace/{session_id} — no /api/v1 prefix, per docs/API.md
+# Every route goes through one access policy (app/core/auth.py); a no-op unless AUTH_ENABLED.
+_AUTH = [Depends(authorize)]
+
+app.include_router(health_router, prefix="/api/v1", dependencies=_AUTH)
+app.include_router(architecture_router, prefix="/api/v1", dependencies=_AUTH)
+app.include_router(documents_router, prefix="/api/v1", dependencies=_AUTH)
+app.include_router(pii_router, prefix="/api/v1", dependencies=_AUTH)
+app.include_router(retrieval_router, prefix="/api/v1", dependencies=_AUTH)
+app.include_router(graph_router, prefix="/api/v1", dependencies=_AUTH)
+app.include_router(chat_router, prefix="/api/v1", dependencies=_AUTH)
+app.include_router(runs_router, prefix="/api/v1", dependencies=_AUTH)
+app.include_router(reports_router, prefix="/api/v1", dependencies=_AUTH)
+app.include_router(audit_router, prefix="/api/v1", dependencies=_AUTH)
+app.include_router(redteam_router, prefix="/api/v1", dependencies=_AUTH)
+app.include_router(profiler_router, prefix="/api/v1", dependencies=_AUTH)
+app.include_router(evaluation_router, prefix="/api/v1", dependencies=_AUTH)
+app.include_router(council_router, prefix="/api/v1", dependencies=_AUTH)
+app.include_router(jobs_router, prefix="/api/v1", dependencies=_AUTH)
+app.include_router(rag_router, prefix="/api/v1", dependencies=_AUTH)
+app.include_router(models_router, prefix="/api/v1", dependencies=_AUTH)
+app.include_router(analytics_router, prefix="/api/v1", dependencies=_AUTH)
+app.include_router(
+    trace_router, dependencies=_AUTH
+)  # /ws/trace/{session_id} — no /api/v1 prefix, per docs/API.md

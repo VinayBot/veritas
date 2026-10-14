@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { JOB_STREAM_URL, cancelJob, getJob, readSse } from '@/lib/api/client'
+import { JOB_STREAM_URL, cancelJob, getJob, readSse, withAuth } from '@/lib/api/client'
 import type { Job, JobStatus } from '@/lib/api/types'
 
 export interface JobView {
@@ -63,7 +63,7 @@ export function useJob(jobId: string | null, onDone?: (job: Job) => void): JobVi
 
     const follow = async () => {
       try {
-        const resp = await fetch(JOB_STREAM_URL(jobId), { signal: controller.signal })
+        const resp = await fetch(JOB_STREAM_URL(jobId), { signal: controller.signal, headers: withAuth() })
         await readSse(resp, (event, data) => {
           if (cancelled) return
           const payload = data as { progress?: number; message?: string; status?: JobStatus }

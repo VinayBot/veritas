@@ -40,8 +40,20 @@ import {
 
 const BASE = '/api/v1'
 
+/** Sent on every call when the backend has AUTH_ENABLED (see backend/app/core/auth.py). */
+const API_KEY: string | undefined = import.meta.env.VITE_API_KEY || undefined
+
+export function withAuth(headers: HeadersInit = {}): HeadersInit {
+  return API_KEY ? { ...(headers as Record<string, string>), 'X-API-Key': API_KEY } : headers
+}
+
+/** The trace WebSocket cannot carry headers, so the key goes in the query string. */
+export function authQuery(): string {
+  return API_KEY ? `?api_key=${encodeURIComponent(API_KEY)}` : ''
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(`${BASE}${path}`, init)
+  const resp = await fetch(`${BASE}${path}`, { ...init, headers: withAuth(init?.headers) })
   if (!resp.ok) {
     const envelope = (await resp.json().catch(() => null)) as ErrorEnvelope | null
     if (envelope) throw new ApiError(envelope, resp.status)
@@ -356,7 +368,7 @@ export async function streamChat(
 ): Promise<void> {
   const resp = await fetch(`${BASE}/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: withAuth({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(body),
     signal,
   })
