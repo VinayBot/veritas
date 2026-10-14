@@ -185,10 +185,12 @@ async def _apply_output_guardrail(
     reveal_pii: bool,
     already_blocked: bool = False,
     query: str = "",
+    retrieved: Sequence[Mapping[str, Any]] = (),
 ) -> tuple[str, list[dict[str, Any]], str]:
     state: AgentState = {
         "session_id": session_id,
         "query": query,
+        "retrieved": cast(list[Any], list(retrieved)),
         "answer": answer,
         "citations": cast(list[Citation], list(citations)),
         "reveal_pii": reveal_pii,
@@ -264,6 +266,7 @@ async def _run_direct(
         reveal_pii,
         already_blocked=input_result.decision == "block",
         query=query,
+        retrieved=hits,
     )
     return {
         "answer": answer,
@@ -480,8 +483,10 @@ async def score_quality(turn: Turn) -> dict[str, Any]:
 
     async def judged() -> dict[str, float | None]:
         # Relevancy and faithfulness from one judge call.
+        # Against what it cited; an answer that cites nothing is still judged against
+        # everything it was shown, rather than left unmeasured.
         return await score_all(
-            turn.answer, turn.query, context=cited_context if turn.citations else None
+            turn.answer, turn.query, context=cited_context if turn.citations else shown_context
         )
 
     async def grounding() -> dict[str, Any] | None:

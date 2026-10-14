@@ -28,7 +28,7 @@ is actually cheaper than the attempt that just timed out, not a second shot at t
 
 from __future__ import annotations
 
-from app.agents.answer_style import style_for
+from app.agents.answer_style import style_for, tidy_answer
 from app.agents.citations import citation_markers
 from app.agents.context_utils import build_numbered_context
 from app.agents.state import AgentState, Citation, record_step
@@ -53,7 +53,8 @@ _COMBINE_PROMPT = (
     "notes:\n{notes}\n\nNow write one complete, well-organized answer to the question using "
     "ONLY the numbered source excerpts below (the notes above may be incomplete — treat the "
     "excerpts as the real evidence) — cite inline using [1], [2], etc. matching the numbers "
-    "below. {style}\n\n{context}\n\nFinal answer:"
+    "below. Answer the question itself; do not describe the excerpts, the document or what "
+    "kind of text it is. {style}\n\n{context}\n\nAnswer:"
 )
 
 
@@ -127,6 +128,7 @@ async def summarizer_node(state: AgentState) -> dict:
                 "I'm unable to generate an answer right now — the language model is unavailable."
             )
 
+        answer = tidy_answer(answer, state.get("detail"))
         h.set_metric("batch_count", len(notes))
         h.set_metric("force_fast", force_fast)
         h.set_output(answer[:200])

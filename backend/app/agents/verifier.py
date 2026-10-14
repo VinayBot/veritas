@@ -1,14 +1,17 @@
 """Verifier: claim-level faithfulness check against the retrieved context. Unsupported claims
-trigger one revision pass (back to the Synthesizer); still unsupported after that -> abstain
-rather than ship an answer the context doesn't back up.
+trigger one revision pass (back to the Synthesizer). If some are still unsupported after
+that, those sentences are removed and the supported rest is kept; the agent abstains only
+when less than half of the answer survives, or when the flagged claims cannot be located.
 """
 
 from __future__ import annotations
 
+from app.agents.answer_style import _sentences
+from app.agents.citations import citation_markers
 from app.agents.context_utils import build_numbered_context
 from app.agents.state import MAX_REVISE_LOOPS, AgentState, record_step
 from app.core.tracing import trace_bus
-from app.evaluation.grounding import unsupported_claims
+from app.evaluation.grounding import is_claim_in_answer, unsupported_claims
 from app.llm.models_config import get_model_config
 
 
@@ -38,12 +41,14 @@ async def verifier_node(state: AgentState) -> dict:
         # not blocked on a verifier that is unavailable.
         unsupported = await unsupported_claims(answer, context, model=grading_model) or []
 
+        trimmed: str | None = None
         if not unsupported:
             verdict = "supported"
         elif revise_count < MAX_REVISE_LOOPS:
             verdict = "revise"
         else:
-            verdict = "abstain"
+            trimmed = supported_part(answer, unsupported)
+            verdict = "trimmed" if trimmed else "abstain"
 
         h.set_metric("verdict", verdict)
         h.set_metric("unsupported_count", len(unsupported))
@@ -52,7 +57,9 @@ async def verifier_node(state: AgentState) -> dict:
     summaries = {
         "supported": "Verified the answer is fully supported by the retrieved context.",
         "revise": f"Found {len(unsupported)} unsupported claim(s); requesting a revision.",
-        "abstain": "Could not fully support the answer after revision; abstaining.",
+        "abstain": "Could not support enough of the answer after revision; abstaining.",
+        "trimmed": f"Removed {len(unsupported)} unsupported sentence(s) after revision; kept the "
+        "supported rest.",
     }
     result: dict = {
         "verifier_verdict": verdict,
@@ -64,7 +71,30 @@ async def verifier_node(state: AgentState) -> dict:
     if verdict == "abstain":
         result["answer"] = "I don't have enough reliably-supported information to answer that."
         result["citations"] = []
+    if verdict == "trimmed" and trimmed is not None:
+        kept = set(citation_markers(trimmed))
+        result["answer"] = trimmed
+        result["citations"] = [c for c in state.get("citations", []) if c["marker"] in kept]
     return result
+
+
+def supported_part(answer: str, unsupported: list[str]) -> str | None:
+    """The answer without the sentences the verifier could not support, or None when that
+    leaves less than half of it — or when a flagged claim matches no sentence, since then it
+    is not known which part is unsupported."""
+    sentences = _sentences(answer)
+    if not sentences:
+        return None
+    flagged = set()
+    for claim in unsupported:
+        matches = [i for i, sentence in enumerate(sentences) if is_claim_in_answer(claim, sentence)]
+        if not matches:
+            return None
+        flagged.update(matches)
+    kept = [s for i, s in enumerate(sentences) if i not in flagged]
+    if not kept or len(kept) * 2 < len(sentences):
+        return None
+    return " ".join(kept)
 
 
 def route_after_verifier(state: AgentState) -> str:

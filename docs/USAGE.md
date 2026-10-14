@@ -35,8 +35,10 @@ background, always after your own questions. The highest combined quality score 
 faithfulness, relevance, correctness and ranking) becomes the strategy that answers this
 document. The card on the right shows the winner with its score and every measured
 strategy's score; until the measurement finishes it shows a prediction from the document's
-shape, marked "not measured yet". **Compare for details** shows the answers side by side
-question by question; **Re-measure** runs it again. Picking a strategy for the document
+shape, marked "not measured yet". **Compare for details** runs the same question set again
+with the document's strategy as the baseline; tick any other strategy (Agentic included) to
+put it next to the recommended one, or switch to "One question" to try your own. It shows the
+answers side by side question by question; **Re-measure** runs it again. Picking a strategy for the document
 yourself (the card, the strategy picker, or "Adopt" in a comparison) sticks: automatic
 measurement never overrides your choice. Five questions is a small sample and the card says
 so.

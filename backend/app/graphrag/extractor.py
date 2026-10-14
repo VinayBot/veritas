@@ -83,18 +83,33 @@ JSON array:"""
 _JSON_ARRAY_RE = re.compile(r"\[.*\]", re.DOTALL)
 
 
+# One triple, written as an object or, by a small model, as a bracketed list of the same
+# key-value pairs: {"subject": …, "predicate": …, "object": …} or ["subject": …, …].
+_TRIPLE_ITEM_RE = re.compile(
+    r'[{\[]\s*("subject"\s*:.*?"object"\s*:\s*"(?:[^"\\]|\\.)*")\s*[}\]]', re.DOTALL
+)
+
+
 def _parse_triples(raw: str) -> list[Triple]:
+    """Every complete triple in the reply. The whole reply is not required to be valid JSON:
+    llama3.2:3b's list was often cut off by the token limit partway through its last item, or
+    used [ ] for an item, and rejecting the whole reply for that left the sample policy with
+    16 entities and no relations at all."""
     candidate = raw.strip()
     match = _JSON_ARRAY_RE.search(candidate)
-    if match:
-        candidate = match.group(0)
     try:
-        parsed = json.loads(candidate)
+        parsed = json.loads(match.group(0) if match else candidate)
     except json.JSONDecodeError:
-        logger.info("Triple extraction: could not parse LLM output as JSON")
-        return []
+        parsed = None
     if not isinstance(parsed, list):
-        return []
+        parsed = []
+        for item in _TRIPLE_ITEM_RE.finditer(candidate):
+            try:
+                parsed.append(json.loads("{" + item.group(1) + "}"))
+            except json.JSONDecodeError:
+                continue
+        if not parsed:
+            logger.info("Triple extraction: no complete triple in the LLM output")
 
     triples = []
     for item in parsed:

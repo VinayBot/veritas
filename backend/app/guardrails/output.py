@@ -37,8 +37,35 @@ class GuardrailResult:
     score: float | None = None
 
 
-def _redact_pii(answer: str) -> tuple[str, int]:
-    detected = detect(answer)
+# Tokens that stand in for personal data masked at upload, e.g. <PERSON_fafb3f>.
+_MASK_TOKEN_RE = re.compile(r"<[A-Z][A-Z_]*_[0-9a-f]{6,}>")
+
+
+def _squash(text: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
+def _redact_pii(answer: str, sources: Sequence[str] = ()) -> tuple[str, int]:
+    """Masks personal data in the answer that did not come from the document as stored.
+
+    Two things this must not do. It must not be misled by the mask tokens themselves: next
+    to "<PERSON_fafb3f> for Facebook Messenger" the name detector called "Facebook
+    Messenger" a person. Tokens are blanked (same length, so offsets hold) before detection.
+    And it must not mask text the answer quotes from the document: the document was already
+    masked at upload, so anything still present verbatim in a cited passage was judged not to
+    be personal data then."""
+    scan = _MASK_TOKEN_RE.sub(lambda m: " " * len(m.group(0)), answer)
+    squashed_sources = [_squash(source) for source in sources]
+
+    def from_source(text: str) -> bool:
+        if any(text in source for source in sources):
+            return True
+        # Spacing and case ignored, for names long enough not to hide inside another word:
+        # the answer may write "Dialogflow" where the passage has "Dialog flow".
+        key = _squash(text)
+        return len(key) >= 6 and any(key in source for source in squashed_sources)
+
+    detected = [ent for ent in detect(scan) if ent.text.strip() and not from_source(ent.text)]
     if not detected:
         return answer, 0
     redacted = answer
@@ -61,7 +88,10 @@ async def check_output(
     trace_id: str,
     reveal_pii: bool = False,
     question: str | None = None,
+    sources: Sequence[str] = (),
 ) -> GuardrailResult:
+    """`sources`: the full text of the passages the answer was written from. Text found
+    verbatim there is the document's own, already masked at upload, and is not a leak."""
     for pattern in _SECRET_PATTERNS:
         if pattern.search(answer):
             result = GuardrailResult(
@@ -76,7 +106,9 @@ async def check_output(
             return result
 
     if not reveal_pii:
-        redacted_answer, leak_count = _redact_pii(answer)
+        # The user's own question counts too: repeating a word they typed leaks nothing.
+        known = [*sources, *(str(c.get("text", "")) for c in citations), question or ""]
+        redacted_answer, leak_count = _redact_pii(answer, known)
         if leak_count:
             result = GuardrailResult(
                 "redact",

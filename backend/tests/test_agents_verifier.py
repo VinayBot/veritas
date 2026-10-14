@@ -215,3 +215,28 @@ async def test_verifier_discards_an_unsupported_claim_not_present_in_the_answer(
     result = await verifier_node(state)
     assert result["verifier_verdict"] == "supported"
     assert result["unsupported_claims"] == []
+
+
+def test_after_revision_unsupported_sentences_are_removed_not_the_whole_answer() -> None:
+    """Reported: the agent declined a broad question because two of its sentences could not
+    be supported. It now keeps the supported rest."""
+    from app.agents.verifier import supported_part
+
+    answer = (
+        "ELIZA was created in 1966 [1]. PARRY followed in 1972 [2]. "
+        "Chatbots were the first search engines. ALICE appeared in 1995 [3]."
+    )
+    kept = supported_part(answer, ["Chatbots were the first search engines."])
+    assert (
+        kept
+        == "ELIZA was created in 1966 [1]. PARRY followed in 1972 [2]. ALICE appeared in 1995 [3]."
+    )
+
+
+def test_the_agent_still_declines_when_most_of_the_answer_is_unsupported() -> None:
+    from app.agents.verifier import supported_part
+
+    answer = "Bots began on Mars. They run on steam. ELIZA dates from 1966 [1]."
+    assert supported_part(answer, ["Bots began on Mars.", "They run on steam."]) is None
+    # A flagged claim that matches no sentence: unknown which part is wrong, so no trimming.
+    assert supported_part(answer, ["Something the answer never said at all."]) is None

@@ -94,3 +94,59 @@ async def test_source_dependent_guard_category_does_not_block_a_cited_answer(mon
     verdict["category"] = "S1"
     harmful = await check_output(answer, cited, str(uuid.uuid4()), str(uuid.uuid4()))
     assert harmful.decision == "block"
+
+
+async def test_a_mask_token_does_not_turn_a_product_name_into_a_person() -> None:
+    """Reported by the owner: "<PERSON_fafb3f> for Facebook Messenger" came back as
+    "<PERSON_fafb3f> for F****************r" — the name detector calls the product a person
+    in that sentence. The phrase is in the document's own (already masked) passage, so it is
+    not a leak."""
+    answer = (
+        "Deep learning propelled AI's advancement [1], leading to chatbots like "
+        "<PERSON_fafb3f> for Facebook Messenger [1]."
+    )
+    cited = [{"marker": 1, "chunk_id": "c1", "text": "a short citation snippet"}]
+    # The full passage the answer was written from, as stored (masked at upload).
+    passage = "chatbots such as <PERSON_fafb3f> were launched for Facebook Messenger in 2016."
+    result = await check_output(
+        answer, cited, str(uuid.uuid4()), str(uuid.uuid4()), sources=[passage]
+    )
+    assert "Facebook Messenger" in result.answer
+    assert "<PERSON_fafb3f>" in result.answer
+
+
+async def test_personal_data_not_in_the_document_is_still_masked() -> None:
+    answer = "You can reach the travel desk at dana.whitfield@example.com [1]."
+    cited = [{"marker": 1, "chunk_id": "c1", "text": "Contact the travel desk for help."}]
+    result = await check_output(answer, cited, str(uuid.uuid4()), str(uuid.uuid4()))
+    assert "dana.whitfield@example.com" not in result.answer
+    assert result.rule == "pii_leak"
+
+
+async def test_text_quoted_from_a_cited_passage_is_not_masked() -> None:
+    """The document was masked at upload; whatever survived there was judged not personal."""
+    answer = "The policy was approved by Northwind Collective's board [1]."
+    cited = [{"marker": 1, "chunk_id": "c1", "text": "approved by Northwind Collective's board"}]
+    result = await check_output(answer, cited, str(uuid.uuid4()), str(uuid.uuid4()))
+    assert result.answer == answer
+
+
+async def test_name_spelled_without_the_sources_spacing_is_not_masked():
+    result = await check_output(
+        "Dialogflow is a Google platform for building chatbots [1].",
+        citations=[{"marker": 1, "text": "Dialog flow provides new ways to interact"}],
+        session_id="s-dialogflow",
+        trace_id="t-dialogflow",
+    )
+    assert "Dialogflow" in result.answer
+
+
+async def test_words_from_the_users_question_are_not_masked():
+    result = await check_output(
+        "Excerpt one covers the origins of artificial intelligence [1].",
+        citations=[{"marker": 1, "text": "Artificial intelligence was coined in 1956."}],
+        session_id="s-question-words",
+        trace_id="t-question-words",
+        question="What does Excerpt one cover?",
+    )
+    assert "Excerpt one" in result.answer

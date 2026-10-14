@@ -121,6 +121,7 @@ async def auto_measure(document_id: str, *, requested: bool = False) -> dict[str
     evidence it decided on, or None when there was nothing to compare."""
     # Imported here: these modules import the orchestrator, which imports this package.
     from app.evaluation import service as evaluation_service
+    from app.evaluation.datasets import names_excerpts
     from app.llm import client as llm_client
     from app.rag_engines import availability, compare, evidence
 
@@ -153,7 +154,11 @@ async def auto_measure(document_id: str, *, requested: bool = False) -> dict[str
                     measure_error="Fewer than two strategies can run on this document.",
                 )
                 return None
-            datasets = await evaluation_service.list_datasets(document_id)
+            datasets = [
+                d
+                for d in await evaluation_service.list_datasets(document_id)
+                if not names_excerpts(d.path)
+            ]
             dataset = (
                 datasets[0]
                 if datasets

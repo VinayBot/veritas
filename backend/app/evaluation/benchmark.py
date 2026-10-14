@@ -267,7 +267,10 @@ async def evaluate_strategy(
         judged = await score_all(
             turn.answer,
             item.question,
-            context=cited_context if turn.citations else None,
+            # An answer that cites nothing is judged against everything it was shown.
+            context=cited_context
+            if turn.citations
+            else "\n\n".join(str(h.get("text", "")) for h in turn.retrieved),
             ground_truth=item.ground_truth_answer,
         )
         faithfulness = judged["faithfulness"]

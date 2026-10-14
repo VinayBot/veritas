@@ -111,3 +111,24 @@ def test_pick_questions_takes_turns_across_question_types() -> None:
     assert {p.category for p in picked} == {"factoid", "comparison", "pii"}
     assert pick_questions(items, 5) == picked  # deterministic
     assert pick_questions(items[:3], 5) == items[:3]
+
+
+def test_saying_the_document_lacks_a_stated_answer_is_not_correct():
+    from app.evaluation.judge import says_not_covered
+
+    assert says_not_covered("Excerpt 1 does not mention the father of artificial intelligence.")
+    assert says_not_covered("Not answerable from this document.")
+    assert not says_not_covered("John McCarthy developed LISP in 1958 [1].")
+
+
+def test_generated_questions_must_not_name_their_excerpts():
+    from app.evaluation.datasets import _MENTIONS_EXCERPT_RE
+
+    for leaked in (
+        "According to Excerpt 1, who founded it?",
+        "What goal is described in both texts?",
+        "How do the definitions differ between the two sources?",
+        "What does the passage say about NLP?",
+    ):
+        assert _MENTIONS_EXCERPT_RE.search(leaked)
+    assert not _MENTIONS_EXCERPT_RE.search("Who is known as the father of artificial intelligence?")

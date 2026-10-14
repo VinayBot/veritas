@@ -20,8 +20,10 @@ _PLANNER_PROMPT = """Classify this question and decide how to answer it. Return 
 object, no other text, no markdown fences, with exactly these keys:
 - "category": one of {categories}. Use "summary" for any broad question that asks for an \
 overview, history, or general account spanning the whole document (e.g. "history of X", \
-"tell me about X", "what is X") rather than one specific fact — these need wide, diverse \
-retrieval across the document, not a single targeted lookup, and route differently.
+"tell me about X", "summarize X") rather than one specific fact — these need wide, diverse \
+retrieval across the document, not a single targeted lookup, and route differently. A \
+question about what something is or how it works ("what is X", "how does X work") is \
+"factoid": it is answered by the passages about X, not by a sample of the whole document.
 - "sub_questions": a JSON array of 1-4 short, self-contained sub-questions. For a simple \
 question, this is just the question itself as the only element. For a multi-hop or comparison \
 question, break it into the separate facts that need to be looked up. For "summary", this is \

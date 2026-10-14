@@ -179,6 +179,9 @@ test('a comparison runs to a measured result in under two minutes, with progress
   await page.getByTestId('compare-recommended').click()
   const dialog = page.getByTestId('compare-dialog')
   await expect(dialog).toBeVisible()
+  // From the card it opens on the question set the recommendation was measured on.
+  await expect(dialog.getByRole('radio', { name: /A set of questions/ })).toHaveAttribute('aria-checked', 'true')
+  await dialog.getByRole('radio', { name: 'One question' }).click()
   await dialog.getByLabel('Question to compare on').fill('How much is the home office stipend?')
   const available = dialog.locator('input[type="checkbox"]:not([disabled])')
   if (!(await available.first().isChecked())) await available.first().check()

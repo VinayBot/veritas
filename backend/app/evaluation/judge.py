@@ -120,8 +120,14 @@ async def score_all(
             wanted.insert(0, "faithfulness")
             extras += f"\nContext:\n{context[:6000]}\n"
     if ground_truth and ground_truth.strip():
-        wanted.append("correctness")
-        extras += f"\nReference answer: {ground_truth}\n"
+        if says_not_covered(answer) and not says_not_covered(ground_truth):
+            # Reproduced in a live comparison: "Excerpt 1 does not mention the father of AI"
+            # was scored 1.0 against a reference that names him. Saying the document lacks
+            # what it has is wrong, whatever the judge model says.
+            result["correctness"] = 0.0
+        else:
+            wanted.append("correctness")
+            extras += f"\nReference answer: {ground_truth}\n"
     prompt = _COMBINED_PROMPT.format(
         question=question,
         answer=answer,
@@ -137,6 +143,18 @@ async def score_all(
         if match:
             result[name] = max(0.0, min(1.0, float(match.group(1)) / 10))
     return result
+
+
+_NOT_COVERED_RE = re.compile(
+    r"\b(?:does not|doesn't|do not|don't) (?:mention|contain|say|state|include|provide)\b"
+    r"|\bnot (?:mentioned|answerable|stated|covered)\b|\bno information (?:about|on)\b",
+    re.I,
+)
+
+
+def says_not_covered(text: str) -> bool:
+    """An abstention, or a reply that the document does not hold the answer."""
+    return is_abstention(text) or bool(_NOT_COVERED_RE.search(text))
 
 
 def is_abstention(answer: str) -> bool:

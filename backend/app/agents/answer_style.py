@@ -41,7 +41,8 @@ _BRIEF = AnswerStyle(
         "Write 3 to 4 lines: three or four full sentences, about 50 to 70 words in total. The "
         "first sentence is the direct answer; the next two or three add the conditions, "
         "numbers or exceptions the context gives for it. Plain prose, no bullet points, no "
-        "preamble, no restating the question, no closing summary."
+        "preamble, no restating the question, no closing summary. End every sentence with the "
+        "number of the excerpt it comes from, like [2]."
     ),
     max_tokens=170,
     prefer_fast_model=True,
@@ -54,7 +55,8 @@ _DEEP = AnswerStyle(
         "Start with the direct answer, then cover every relevant detail, condition, number "
         "and exception the context gives, drawing on more than one source where they apply. "
         "Stop after the eighth sentence. Plain prose, no bullet points, no preamble, no "
-        "closing summary and no list of references at the end."
+        "closing summary and no list of references at the end. End every sentence with the "
+        "number of the excerpt it comes from, like [2]."
     ),
     max_tokens=330,
     prefer_fast_model=False,
@@ -85,19 +87,28 @@ _TRAILING_SOURCES_RE = re.compile(
 
 # A sentence ends at . ! or ? — optionally followed by citation markers — before whitespace.
 _SENTENCE_END_RE = re.compile(r"(?<=[.!?])(?:\s*\[\d+(?:\s*,\s*\d+)*\])*(?=\s|$)")
-_NUMBER_BEFORE_DOT_RE = re.compile(r"(?:\d|\b(?:e\.g|i\.e|vs|etc|Mr|Mrs|Ms|Dr|No))\.$")
+# Words whose period does not end a sentence.
+_ABBREVIATION_RE = re.compile(r"\b(?:e\.g|i\.e|vs|etc|Mr|Mrs|Ms|Dr|No|St|approx)\.$", re.IGNORECASE)
+# A numbered-list marker on its own ("2.") at the start of a line.
+_LIST_MARKER_RE = re.compile(r"(?:^|\n)\s*\d{1,2}\.$")
+# List formatting a small model adds despite being asked for prose: "1. ", "2) ", "- ", "• ".
+_LIST_PREFIX_RE = re.compile(r"(?m)^\s*(?:\d{1,2}[.)]|[-*•])\s+")
 
 
 def _sentences(text: str) -> list[str]:
-    """Splits into sentences, keeping each one's trailing citation markers with it."""
+    """Splits into sentences, keeping each one's trailing citation markers with it. A period
+    after a number ends a sentence ("...ALICE in 1995. These...") unless it is a list marker
+    at the start of a line; decimals ("5.5") never match because no space follows the dot."""
     parts: list[str] = []
     start = 0
     for match in _SENTENCE_END_RE.finditer(text):
         end = match.end()
-        candidate = text[start:end]
-        # "5.5 days", "e.g." and numbered-list markers are not sentence ends.
-        if _NUMBER_BEFORE_DOT_RE.search(text[start : match.start()]) and not match.group().strip():
+        before = text[start : match.start()]
+        if not match.group().strip() and (
+            _ABBREVIATION_RE.search(before) or _LIST_MARKER_RE.search(text[: match.start()])
+        ):
             continue
+        candidate = text[start:end]
         if candidate.strip():
             parts.append(candidate.strip())
         start = end
@@ -107,17 +118,46 @@ def _sentences(text: str) -> list[str]:
     return parts
 
 
+# A line that is only a heading: "## Types" or "**Types of chatbots**".
+_HEADING_RE = re.compile(r"(?m)^\s*(?:#{1,6}\s+[^\n]*|\*\*[^*\n]+\*\*:?)\s*$")
+_META_RE = re.compile(
+    r"\b(?:the|these) (?:provided |given )?(?:text|excerpts?|passages?|context|notes|"
+    r"documents?) (?:appears?|seems?|does not|doesn't|do not|is a|are a)\b"
+    r"|\bhere(?:'s| is) (?:a|the) (?:summary|overview)\b"
+    r"|\bI can (?:still )?provide (?:a|an|some)\b",
+    re.I,
+)
+
+
 def tidy_answer(answer: str, detail: str | None = None) -> str:
     """Makes the reply the length it was asked to be.
 
     Drops a "References:" list a model sometimes appends (inline markers like [2] are the
     citations), a last sentence that was cut off by the token limit, and — when `detail` is
     given — anything past the fourth sentence of a quick answer or the eighth of a deep one.
-    Nothing is rewritten: sentences are only ever removed from the end."""
+    Sentences are only ever removed from the end; the one change inside the text is that a
+    numbered or bulleted list, which the model was asked not to write, becomes plain prose."""
     text = _TRAILING_SOURCES_RE.sub("", answer).strip()
     if not text:
         return text
+    # Asked for prose: headings and list markers go, and the items run on as sentences.
+    if _HEADING_RE.search(text) or _LIST_PREFIX_RE.search(text):
+        lines = [
+            line.strip().replace("**", "")
+            for line in _LIST_PREFIX_RE.sub("", _HEADING_RE.sub("", text)).splitlines()
+        ]
+        text = " ".join(
+            line if re.search(r"[.!?][\s\]\[\d,]*$", line) else f"{line.rstrip(':')}."
+            for line in lines
+            if line
+        )
     sentences = _sentences(text)
+    # "The provided text appears to be a collection of notes…": a sentence about the
+    # excerpts rather than the question. Dropped while something else remains.
+    if any(_META_RE.search(s) for s in sentences):
+        rest = [s for s in sentences if not _META_RE.search(s)]
+        if rest:
+            text, sentences = " ".join(rest), rest
     if len(sentences) > 1 and not re.search(r"[.!?][\s\]\[\d,]*$", sentences[-1]):
         sentences = sentences[:-1]  # cut off mid-sentence
     if detail in DETAIL_LEVELS:

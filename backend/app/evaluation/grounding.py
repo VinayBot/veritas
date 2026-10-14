@@ -26,6 +26,11 @@ VERIFY_PROMPT = (
     "sentence is supported, return []. Return ONLY the JSON array, no other text."
 )
 
+RECHECK_PROMPT = (
+    "Context:\n{context}\n\nStatement: {claim}\n\n"
+    "Does the context state or directly imply this statement? Answer with one word, yes or no."
+)
+
 _WORD_RE = re.compile(r"[a-z0-9]+")
 _CITATION_RE = re.compile(r"\[\d+(?:\s*,\s*\d+)*\]")
 
@@ -78,7 +83,38 @@ async def unsupported_claims(
         return None
     claims = [str(c) for c in (extract_json_array(raw) or []) if isinstance(c, str)]
     claims = [c for c in claims if is_claim_in_answer(c, answer)]
-    return [c for c in claims if not is_claim_in_context(c, context)]
+    claims = [c for c in claims if not is_claim_in_context(c, context)]
+    if _is_blanket_flag(claims, answer):
+        claims = await _recheck_one_by_one(claims, context, model)
+    return claims
+
+
+def _is_blanket_flag(claims: list[str], answer: str) -> bool:
+    """Most of the answer flagged at once. Reproduced live with llama3.2:3b: given eight
+    passages it listed all three sentences of an answer about chatbot history, including one
+    the document states almost word for word ("in the early years of 2000s, the machine
+    learning field evolved"). Asked about one sentence at a time, the same model gets it
+    right, so such a verdict is checked again sentence by sentence."""
+    sentences = [s for s in split_sentences(answer) if len(_words(s)) >= 3]
+    return len(claims) >= 2 and len(claims) * 2 > len(sentences)
+
+
+async def _recheck_one_by_one(claims: list[str], context: str, model: str | None) -> list[str]:
+    kept: list[str] = []
+    for claim in claims:
+        try:
+            raw = await complete(
+                RECHECK_PROMPT.format(context=context, claim=_CITATION_RE.sub("", claim).strip()),
+                model=model,
+                max_tokens=5,
+                temperature=0.0,
+            )
+        except LlmUnavailableError:
+            kept.append(claim)  # cannot recheck: keep the original verdict
+            continue
+        if not raw.strip().lower().startswith("yes"):
+            kept.append(claim)
+    return kept
 
 
 @dataclass

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.agents.answer_style import resolve_detail, style_for, wants_depth
+from app.agents.answer_style import resolve_detail, style_for, tidy_answer, wants_depth
 
 
 @pytest.mark.parametrize(
@@ -81,3 +81,53 @@ def test_tidy_answer_enforces_the_requested_length_by_dropping_trailing_sentence
     )
     short = "The stipend is six hundred dollars [1]."
     assert tidy_answer(short, "brief") == short
+
+
+def test_a_sentence_ending_in_a_number_still_counts_as_a_sentence() -> None:
+    """Reported: a quick answer ran to six sentences because "...ALICE in 1995. These..."
+    was not counted as a sentence end."""
+    from app.agents.answer_style import tidy_answer
+
+    text = (
+        "ELIZA appeared in 1966. PARRY followed in 1972. ALICE arrived in 1995. "
+        "Siri launched in 2011. Alexa came in 2014. Bots now use deep learning."
+    )
+    assert tidy_answer(text, "brief") == (
+        "ELIZA appeared in 1966. PARRY followed in 1972. ALICE arrived in 1995. "
+        "Siri launched in 2011."
+    )
+    assert tidy_answer("Trips over 5.5 days need approval [1]. Book early.", "brief") == (
+        "Trips over 5.5 days need approval [1]. Book early."
+    )
+
+
+def test_a_numbered_list_becomes_prose_and_is_held_to_length() -> None:
+    from app.agents.answer_style import tidy_answer
+
+    text = (
+        "1. Chatbots began in 1966 with ELIZA. It matched keywords.\n\n"
+        "2. PARRY came in 1972. ALICE followed in 1995.\n\n"
+        "3. Modern bots use neural networks."
+    )
+    out = tidy_answer(text, "brief")
+    assert "\n" not in out and not out.startswith("1.")
+    assert out == (
+        "Chatbots began in 1966 with ELIZA. It matched keywords. "
+        "PARRY came in 1972. ALICE followed in 1995."
+    )
+
+
+def test_headings_and_meta_sentences_are_dropped():
+    answer = (
+        "The provided text appears to be a collection of passages about chatbots. Here's a "
+        "summary of the main points:\n\n**Types of Chatbots**\n\n"
+        "1. Dialog Flow: a Google platform [3]\n2. Meya.ai: offers a live debugger [2]\n"
+    )
+    assert tidy_answer(answer, "brief") == (
+        "Dialog Flow: a Google platform [3]. Meya.ai: offers a live debugger [2]."
+    )
+
+
+def test_a_meta_sentence_alone_is_kept():
+    answer = "The provided text does not say when chatbots began."
+    assert tidy_answer(answer, "brief") == answer

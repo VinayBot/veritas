@@ -8,6 +8,7 @@ the pipeline already flagged as containing PII tokens rather than being a fifth 
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -36,35 +37,45 @@ class EvalItem(BaseModel):
     source_chunk_ids: list[str]
 
 
+_MENTIONS_EXCERPT_RE = re.compile(
+    r"\b(?:excerpts?|(?:the|both|these|two) (?:texts?|passages?|sources))\b", re.I
+)
+_STANDALONE = (
+    " The question must make sense on its own to someone who has not seen the excerpts: never "
+    "mention an excerpt, a passage, 'the text' or 'the two sources'."
+)
+
 _FACTOID_PROMPT = (
     "Given this excerpt, write one factual question that is directly and unambiguously "
-    "answered by it, plus the answer. Return ONLY a JSON object: "
+    "answered by it, plus the answer." + _STANDALONE + " Return ONLY a JSON object: "
     '{{"question": "...", "answer": "..."}}\n\nExcerpt:\n{text}'
 )
 
 _MULTI_HOP_PROMPT = (
     "Given these two related excerpts, write one question that requires information from "
-    "BOTH to answer, plus the combined answer. Return ONLY a JSON object: "
+    "BOTH to answer, plus the combined answer." + _STANDALONE + " Return ONLY a JSON object: "
     '{{"question": "...", "answer": "..."}}\n\nExcerpt 1:\n{text_a}\n\nExcerpt 2:\n{text_b}'
 )
 
 _COMPARISON_PROMPT = (
     "Given these two excerpts, write one question that asks the reader to compare or "
-    "contrast something between them, plus the answer. Return ONLY a JSON object: "
+    "contrast something between them, plus the answer."
+    + _STANDALONE
+    + " Return ONLY a JSON object: "
     '{{"question": "...", "answer": "..."}}\n\nExcerpt 1:\n{text_a}\n\nExcerpt 2:\n{text_b}'
 )
 
 _UNANSWERABLE_PROMPT = (
     "Given this excerpt, write one question that sounds plausible for this kind of document "
     "but is NOT actually answered by this specific excerpt (ask about a related fact it does "
-    "not contain). Return ONLY a JSON object: "
+    "not contain)." + _STANDALONE + " Return ONLY a JSON object: "
     '{{"question": "...", "answer": "Not answerable from this document."}}\n\nExcerpt:\n{text}'
 )
 
 _PII_PROMPT = (
     "This excerpt contains a masked PII placeholder token like <TYPE_hex>. Write one question "
     "that asks about that piece of contact/personal information, plus an answer that just "
-    "names which token answers it. Return ONLY a JSON object: "
+    "names which token answers it." + _STANDALONE + " Return ONLY a JSON object: "
     '{{"question": "...", "answer": "..."}}\n\nExcerpt:\n{text}'
 )
 
@@ -76,6 +87,9 @@ async def _generate_one(prompt: str) -> dict | None:
         return None
     parsed = extract_json_object(raw)
     if not parsed or "question" not in parsed or "answer" not in parsed:
+        return None
+    # A user never sees "Excerpt 1"; a question that names it cannot be asked of the app.
+    if _MENTIONS_EXCERPT_RE.search(str(parsed["question"])):
         return None
     return parsed
 
@@ -251,3 +265,12 @@ def load_dataset(path: str) -> list[EvalItem]:
             if line.strip():
                 items.append(EvalItem(**json.loads(line)))
     return items
+
+
+def names_excerpts(path: str) -> bool:
+    """A question set written before questions had to stand on their own ("According to
+    Excerpt 1, …"). The app cannot answer those as asked, so they make a poor measurement."""
+    try:
+        return any(_MENTIONS_EXCERPT_RE.search(item.question) for item in load_dataset(path))
+    except OSError:
+        return True

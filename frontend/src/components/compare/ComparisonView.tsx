@@ -10,6 +10,7 @@ import { diffWords } from '@/lib/diff'
 import type { GlossaryTerm } from '@/lib/glossary'
 import { compact, ms, score } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { withMaskedValues } from '@/components/workspace/AnswerText'
 
 const METRICS: { key: string; label: string; term: GlossaryTerm; get: (r: ConfigResultOut) => number | null | undefined }[] = [
   { key: 'faithfulness', label: 'Faithfulness', term: 'faithfulness', get: (r) => r.faithfulness },
@@ -125,6 +126,12 @@ export function ComparisonView({
                 {isBase && <Badge variant="outline">baseline</Badge>}
                 {s.cached && <Badge variant="outline" title="This result was measured earlier on the same document, eval set and models.">cached</Badge>}
               </header>
+              {s.samples.length > 0 && s.samples.every((x) => x.outcome === 'abstained') && (
+                <p className="text-xs text-warning" data-testid={`declined-${s.name}`}>
+                  Declined to answer{s.samples.length === 1 ? '' : ' every question'}: it judged the evidence it found too weak, so relevance scores 0 and
+                  faithfulness cannot be measured.
+                </p>
+              )}
               {s.skipped_reason ? (
                 <p className="text-xs text-warning">Did not run: {s.skipped_reason}</p>
               ) : (
@@ -196,11 +203,19 @@ export function ComparisonView({
                   const isBase = s.name === result.baseline
                   return (
                     <div key={s.name} className="rounded-xl border border-border bg-surface p-3 text-xs" data-testid={`comparison-answer-${s.name}`}>
-                      <p className="mb-1.5 font-medium text-foreground">{label(s.name)}</p>
+                      <p className="mb-1.5 flex items-center gap-1.5 font-medium text-foreground">
+                        {label(s.name)}
+                        {sample?.outcome === 'abstained' && (
+                          <Badge variant="warning" title="The strategy checked its evidence and chose not to answer rather than guess.">
+                            declined to answer
+                          </Badge>
+                        )}
+                        {sample?.outcome === 'blocked' && <Badge variant="destructive">blocked by a safety check</Badge>}
+                      </p>
                       {!sample ? (
                         <p className="text-muted-foreground">{s.skipped_reason ? 'Did not run.' : 'Not asked this question (agent strategies answer the first 5).'}</p>
                       ) : isBase || !base ? (
-                        <p className="leading-relaxed whitespace-pre-wrap text-foreground">{sample.answer}</p>
+                        <p className="leading-relaxed whitespace-pre-wrap text-foreground">{withMaskedValues(sample.answer)}</p>
                       ) : (
                         <p className="leading-relaxed whitespace-pre-wrap text-foreground">
                           {diffWords(base.answer, sample.answer)

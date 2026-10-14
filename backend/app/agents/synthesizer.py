@@ -5,7 +5,7 @@ instead of a fresh one.
 
 from __future__ import annotations
 
-from app.agents.answer_style import style_for
+from app.agents.answer_style import style_for, tidy_answer
 from app.agents.citations import citation_markers
 from app.agents.context_utils import UNTRUSTED_CONTEXT_SYSTEM_PROMPT, build_numbered_context
 from app.agents.state import AgentState, Citation, record_step
@@ -114,6 +114,7 @@ async def synthesizer_node(state: AgentState) -> dict:
                     "I'm unable to generate an answer right now — the language model is "
                     "unavailable."
                 )
+        answer = tidy_answer(answer, state.get("detail"))
         h.set_metric("revision", is_revision)
         h.set_output(answer[:200])
 

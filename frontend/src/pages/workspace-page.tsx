@@ -366,7 +366,6 @@ export function WorkspacePage() {
   }, [strategies.data])
   useCommands('workspace', commands)
 
-  const lastQuestion = [...messages].reverse().find((m) => m.role === 'user')?.content
   const enriching = doc?.enrichment_status === 'running'
   const botState: BotState = doc?.status === 'failed' ? 'error' : inFlight || uploading || sending || enriching ? 'working' : report ? 'success' : 'idle'
   const botLabel =
@@ -715,7 +714,9 @@ export function WorkspacePage() {
               store.setStrategyOverride(null)
               strategies.refresh()
             }}
-            onCompare={(selected) => setCompare({ query: lastQuestion, selected })}
+            // The recommendation rests on the document's question set; comparing on that same set
+            // checks it, where a single question can easily disagree.
+            onCompare={(selected) => setCompare({ selected })}
           />
         )}
         {reportError ? (

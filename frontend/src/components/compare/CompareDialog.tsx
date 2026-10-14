@@ -205,7 +205,7 @@ export function CompareDialog({
 
             <fieldset>
               <legend className="mb-2 text-xs font-medium text-muted-foreground">
-                Compare against <span className="text-foreground">{names[defaultStrategy]}</span> (the current default, always included)
+                Compare against <span className="text-foreground">{names[defaultStrategy]}</span> (this document’s strategy, always included)
               </legend>
               <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
                 {strategies

@@ -1413,3 +1413,54 @@ Answers are made readable: an unsupported sentence is marked only by a red under
 `<mark>` element had fallen back to the browser's yellow background), grouped citations such
 as "[7, 8]" are read as two citations everywhere (`agents/citations.py`), and masked personal
 data like `<PERSON_c5e7f7>` is shown as a small "person" tag.
+
+
+## Why Agentic scored zero, and the fixes that followed from one live trace
+
+A comparison showed Agentic at zero on the owner's chatbot paper. Tracing it on the 3B model
+found five separate causes, each reproduced live and then fixed:
+
+- **The critic accepted nothing.** Its ANSWERABLE/UNANSWERABLE prompt relied on the 7B model,
+  which was removed; `llama3.2:3b` replied UNANSWERABLE to every case tried, including one
+  with the exact answer in the context. Every factoid question therefore ran the rewrite loop
+  to its limit. A plain YES/NO wording got 7 of 8 cases right; its one miss (a refusal read as
+  "no information") is covered by trusting a reranker score above 3.0 on its own (a correct
+  passage measured +4.6, unrelated ones −8 to −11), which also skips the model call.
+- **The verifier flagged whole answers.** Given eight passages, the 3B grader listed every
+  sentence as unsupported, including one the document states nearly word for word. When most
+  of an answer is flagged, each flagged sentence is now asked about on its own
+  (`grounding._recheck_one_by_one`); the extra calls happen only in that case. After the
+  revision, unsupported sentences are removed and the rest is kept; the agent abstains only
+  when less than half survives.
+- **"What is X" went to the summary route.** That route samples the whole document for
+  breadth, so "Explain how chatbots work" came back as a list of frameworks. Only overview,
+  history and "tell me about" questions take it now.
+- **Agent answers were never tidied.** Direct strategies passed through `tidy_answer`; the
+  summarizer and synthesizer did not, so lists, headings and "The provided text appears to
+  be…" reached the user. They are tidied now, and such meta sentences are dropped. The combine
+  prompt ended in "Final answer:", which the model read as a maths problem; it is "Answer:".
+- **Citations.** Both answer styles now ask for a marker at the end of every sentence; agent
+  answers with citations went from 0 of 5 to 3–4 of 4 in the same live run.
+
+The comparison itself was also measuring badly. Generated questions said "According to
+Excerpt 1…", which no user would ask; questions that name excerpts, passages or "both texts"
+are now rejected, and a stored set with such questions is regenerated at the next
+measurement. An answer that says the document does not cover something is scored 0 for
+correctness when the reference answer has content (the judge had given one such answer 1.0).
+On the owner's document, after these fixes: Agentic 0.71 vs Hybrid + Rerank 0.51 over three
+questions; the regenerated question set measured GraphRAG 0.65, Hybrid + Rerank 0.59,
+Hybrid 0.47, so GraphRAG became that document's strategy.
+
+The output privacy check also stopped masking words the answer shares with its sources or
+with the user's own question: "Dialogflow" (written "Dialog flow" in the source; spacing and
+case are ignored for names of six letters or more) and "Excerpt" had both been masked.
+
+The recommendation card's "Compare for details" now opens on the same question set the
+recommendation was measured on, with the document's strategy as the baseline, instead of on
+the last single question: a one-question comparison was what had disagreed with the card.
+
+The end-to-end run then caught one more: the sample policy's knowledge graph had 16 entities
+and no relations. `llama3.2:3b` did return relations, but its JSON list was cut off by the
+token limit partway through the last item (or wrote an item as `[ ]`), and the parser
+rejected the whole reply. It now keeps every complete triple; a rebuild of the sample gave
+relations again and the graph test passes.

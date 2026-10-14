@@ -32,7 +32,9 @@ export function segmentAnswer(content: string, grounding: GroundingReport | null
 
 // Personal data is replaced at upload by tokens like <PERSON_c5e7f7>. They are shown as a
 // short labelled tag instead of the raw token, which is hard to read mid-sentence.
-const MASK_RE = /<([A-Z][A-Z_]*?)_([0-9a-f]{6,})>/g
+// Also the previews the final privacy check writes when an answer itself contains personal
+// data ("J***************m"): first and last character around three or more asterisks.
+const MASK_RE = /<([A-Z][A-Z_]*?)_([0-9a-f]{6,})>|\b[A-Za-z0-9]\*{3,}[A-Za-z0-9]\b/g
 const MASK_LABEL: Record<string, string> = {
   PERSON: 'person',
   EMAIL_ADDRESS: 'email',
@@ -43,19 +45,23 @@ const MASK_LABEL: Record<string, string> = {
   US_SSN: 'ID number',
 }
 
-function withMaskedValues(text: string): ReactNode {
-  if (!text.includes('<')) return text
+export function withMaskedValues(text: string): ReactNode {
+  if (!text.includes('<') && !text.includes('***')) return text
   const out: ReactNode[] = []
   let last = 0
   for (const match of text.matchAll(MASK_RE)) {
     const at = match.index ?? 0
     if (at > last) out.push(text.slice(last, at))
-    const label = MASK_LABEL[match[1]] ?? match[1].toLowerCase().replace(/_/g, ' ')
+    const label = match[1] ? (MASK_LABEL[match[1]] ?? match[1].toLowerCase().replace(/_/g, ' ')) : 'hidden'
     out.push(
       <span
         key={at}
         data-testid="masked-value"
-        title={`A ${label} from the document, hidden for privacy when it was uploaded (${match[0]}). Turn on Reveal PII to include it in answers.`}
+        title={
+          match[1]
+            ? `A ${label} from the document, hidden for privacy when it was uploaded (${match[0]}). Turn on Reveal PII to include it in answers.`
+            : 'Personal data the answer contained, hidden by the final privacy check.'
+        }
         className="mx-0.5 inline-flex items-center rounded-sm bg-surface px-1 align-baseline text-[0.85em] text-muted-foreground ring-1 ring-border"
       >
         {label}
