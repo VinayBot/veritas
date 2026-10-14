@@ -66,7 +66,9 @@ def render_markdown(report: BenchmarkReport) -> str:
         "the ids of the chunks it was written from). Retrieval metrics compare the top 5 "
         "retrieved chunks with those ids: Precision@5, Recall@5, MRR and nDCG@5. Generation "
         "is scored by a judge model: faithfulness (claims supported by the retrieved context), "
-        "relevancy (answers the question) and correctness (agrees with the known answer).",
+        "relevancy (answers the question) and correctness (agrees with the known answer). Each "
+        "question is written from one or two chunks, so Precision@5 cannot exceed 0.2–0.4; "
+        "Recall@5, MRR and nDCG@5 are the retrieval measures to compare.",
         "",
         "| Strategy | n | P@5 | Recall@5 | MRR | nDCG@5 | Faithfulness | Relevancy "
         "| Correctness | p50 / p95 (ms) | Score | Gates |",

@@ -1,124 +1,134 @@
-# Veritas
+# Veritas — a dynamic hybrid RAG pipeline that picks the best strategy per document
 
-An adaptive, agentic RAG platform: hybrid search, reranking, GraphRAG, an LLM council, layered
-guardrails, automated evaluation, and a real-trace-driven React interface — free and local by
-default (Ollama), with optional cloud LLMs via env vars.
+Veritas answers questions about your own documents, with a citation on every claim, and runs
+**entirely on a laptop**: local Hugging Face embeddings, ChromaDB or Qdrant (embedded), an open
+cross-encoder re-ranker, NetworkX or Neo4j for the knowledge graph, local LLMs through Ollama,
+Presidio PII masking and Llama Guard. Nothing leaves the machine.
 
-**Status: all 13 build phases have working code and real tests** — backend (ingestion through
-LLM Council, eight switchable RAG strategies) and a three-tab frontend (Workspace, Architecture,
-Evaluation) plus a landing page. See
-[docs/VALIDATION_REPORT.md](docs/VALIDATION_REPORT.md) for the honest, itemized pass/fail
-account of what's verified vs. simplified vs. not attempted — several things described in the
-original brief (a GSAP-driven Cinematic Tour, a recorded hero video, Lighthouse/axe scores)
-were deliberately cut for time and are called out there, not silently skipped. See
-[docs/DECISIONS.md](docs/DECISIONS.md) for every default chosen along the way and why.
+Its central idea: **no single RAG strategy is best for every document.** After each upload,
+Veritas writes questions with known answers from that document, runs several retrieval
+strategies on them, scores every answer, and answers that document with the measured winner.
+You can compare any strategy against it, question by question, with the scores side by side.
+
+## Measured results
+
+From `make eval` on the bundled HR handbook ([docs/BENCHMARKS.md](docs/BENCHMARKS.md); 10
+generated questions per strategy, 6 for the agent; judged by the local 3B model, so treat
+small differences as noise):
+
+| Strategy | Recall@5 | nDCG@5 | Faithfulness | Correctness | p95 latency | Production gates |
+|---|---|---|---|---|---|---|
+| Hybrid + Rerank | 1.00 | 1.00 | 0.67 | 0.64 | 4.5 s | faithfulness below 0.85 |
+| HyDE | 1.00 | 0.96 | 0.80 | 0.81 | 11.0 s | faithfulness below 0.85 |
+| GraphRAG | 1.00 | 0.96 | 0.68 | 0.73 | 4.0 s | faithfulness below 0.85 |
+| **Agentic** | 1.00 | 1.00 | **0.87** | **0.82** | 13.7 s | **all pass** |
+
+Safety on the same run: **97.6%** of 42 red-team attacks blocked, **0** PII values in the
+indexed chunks. The agent's verify-and-revise loop is what lifts faithfulness over the gate;
+the fast strategies trade some of it for 3–4× lower latency, which is why the app recommends
+per document and lets you compare.
 
 ## Quickstart
 
 ```bash
-# 1. Backend
-cd backend
-uv sync
-cp ../.env.example ../.env   # defaults are free/local; edit if you want cloud LLMs
-uv run uvicorn app.main:app --reload --port 8000
+# Prerequisites: Python 3.11 + uv, Node 22, Ollama (https://ollama.com)
+ollama pull llama3.2:3b          # answer model (about 2 GB)
+ollama pull llama-guard3:1b      # safety classifier
 
-# 2. Pull the local models (first run only)
-ollama pull llama3.2:3b              # default answer model (2 GB, fastest)
-ollama pull llama-guard3:1b          # safety classifier
-ollama pull gemma2:2b                # optional: only for the opt-in council strategy
-
-# 3. Frontend (separate terminal)
-cd frontend
-npm install
-npm run dev
-
-# 4. Open http://localhost:5173 (or whatever port Vite reports), or just check the API:
-curl http://localhost:8000/api/v1/health
+make setup                        # .env from .env.example, backend (uv sync), frontend (npm install)
+make dev                          # API on :8000, UI on http://localhost:5173/app
 ```
 
-Or, from the repo root: `make setup && make dev` runs both. `make eval` ingests the bundled
-demo document and runs the full benchmark suite; `make redteam` runs the guardrail attack
-corpus; `make test` / `make lint` run both halves' real test and lint suites.
+Then upload a document (or click **Or try the bundled sample**) and ask a question. Other
+targets: `make test`, `make lint`, `make eval` (publishes [docs/BENCHMARKS.md](docs/BENCHMARKS.md)),
+`make redteam`. Docker: `docker compose up`; the optional `qdrant` and `neo4j` profiles start
+those servers (set `QDRANT_URL` / `GRAPH_STORE=neo4j` to use them).
 
-## What's actually in here
+## Assignment topics and where each one lives
 
-- **Ingestion**: Docling (PDF/DOCX/PPTX/images), trafilatura (HTML), plus Markdown/TXT/CSV/EML/
-  RTF, an SSRF-guarded URL scraper, and a quality-repair refiner — all real parsers, not stubs.
-- **PII vault**: Presidio detection + deterministic HMAC tokenization + Fernet-encrypted vault,
-  with an audited reveal endpoint. Nothing downstream of ingestion ever sees raw PII.
-- **Retrieval**: 6 chunking strategies, dense (ChromaDB) + sparse (BM25) hybrid search via
-  Reciprocal Rank Fusion, cross-encoder reranking, HyDE, MMR/cosine/n-gram dedup.
-- **GraphRAG**: spaCy NER + LLM triple extraction, deterministic entity resolution, Louvain
-  communities, NetworkX by default with a Neo4j adapter behind the same interface.
-- **Agentic RAG**: a real LangGraph state machine (planner/rewriter/retriever/critic/
-  synthesizer/verifier/guardian) with bounded retry loops, plus simpler hybrid/graph modes.
-- **LLM Council**: opt-in multi-model ensemble — independent answers, anonymized peer review,
-  chairman synthesis, a real computed agreement score. Separately, every default (non-council)
-  turn goes through a per-query Model Router with a real latency-budget fallback.
-- **Guardrails**: regex heuristics + a prompt-injection classifier + Llama Guard, an audit log,
-  and a 42-attack/15-benign red-team suite with a published, re-measured block rate.
-- **Evaluation**: synthetic eval-set generation from a document's own chunks, textbook
-  retrieval metrics, LLM-judge generation scoring, a profiler + 5-candidate chunking tournament
-  (the "Advisor"), and a full benchmark runner with hard production gates.
-- **Frontend**: three tabs, all on real data. **Workspace**: upload, streamed answers with
-  citations (3–4 lines, or 7–8 with Deep reasoning), one-click strategy and local-model
-  switching, a per-document strategy recommendation with a measured before/after, and a
-  per-answer analysis panel. **Architecture**: a diagram generated from the code, live health
-  probes, a self-check, and packets driven by the `/ws/trace` WebSocket. **Evaluation**: one
-  dashboard with Usage (including measured quality), Knowledge graph (with "ask the graph")
-  and Safety views. See [docs/USAGE.md](docs/USAGE.md).
+| Day | Topic | What is implemented | Code | Tests |
+|---|---|---|---|---|
+| 11 | **Custom parsers, legacy formats** | One parser registry: Docling (PDF layout, DOCX, PPTX, XLSX, images with OCR), trafilatura (HTML), EML, RTF, CSV/TXT/MD, and legacy binary **.doc/.xls** through headless LibreOffice; an SSRF-guarded URL scraper; a text-quality refiner | `app/ingestion/` | `test_parsers_formats.py`, `test_registry.py`, `test_refiner.py`, `test_scraper_ssrf.py` |
+| 11 | **Chunking** | Six strategies: fixed, recursive, sentence-window, semantic, structure-aware, parent-child; a chunking tournament picks the best per document | `app/chunking/`, `app/profiler/tournament.py` | `test_chunking.py`, `test_semantic_chunking.py`, `test_profiler_tournament.py` |
+| 11 | **Vector DBs and hybrid search** | Local `all-MiniLM-L6-v2` embeddings; **ChromaDB and Qdrant** behind one interface (`VECTOR_STORE`); BM25 (bm25s) + dense fused with Reciprocal Rank Fusion | `app/stores/vector/`, `app/retrieval/hybrid.py` | `test_vector_stores.py` (identical hits and scores from both stores), `test_hybrid_retrieval.py`; CI runs the retrieval suite on Qdrant too |
+| 12 | **Re-ranking** | Cross-encoder `ms-marco-MiniLM-L-6-v2` over the fused candidates | `app/retrieval/reranker.py` | `test_reranker.py` |
+| 12 | **Query rewriting, HyDE** | HyDE (embed a hypothetical answer); the agent's rewriter tries several rewrite techniques when the critic finds evidence insufficient | `app/retrieval/hyde.py`, `app/agents/rewriter.py`, `app/agents/critic.py` | `test_hyde.py`, `test_agents_critic.py`, `test_agents_graph.py` |
+| 12 | **Context deduplication and compression** | MMR, cosine-threshold and n-gram dedup; extractive compression to a token budget; a semantic cache | `app/retrieval/dedupe.py`, `compression.py`, `semantic_cache.py` | `test_dedupe.py`, `test_compression.py`, `test_semantic_cache.py` |
+| 12 | **Advanced RAG** | Eight strategies in one registry (Naive, Hybrid, Hybrid + Rerank, HyDE, Semantic chunks, GraphRAG, Agentic, Council); Agentic is a LangGraph state machine: planner, rewriter, retriever, critic, synthesizer, verifier, guardian | `app/rag_engines/`, `app/agents/`, `app/council/` | `test_rag_api.py`, `test_agents_*.py`, `test_council.py` |
+| 13 | **Entity extraction** | spaCy NER, PII tokens kept as entities, LLM relation triples (tolerant parsing), deterministic entity resolution | `app/graphrag/extractor.py`, `resolver.py` | `test_graphrag_extractor*.py`, `test_graphrag_resolver.py` |
+| 13 | **Graph store and traversal** | **NetworkX and Neo4j** behind one interface (`GRAPH_STORE`); fuzzy entity linking from the question; n-hop traversal; Louvain communities with summaries; "Ask the graph" in the UI | `app/stores/graph/`, `app/graphrag/service.py` | `test_graph_store_parity.py` (both stores; CI runs a real Neo4j), `test_graphrag_service.py`, `test_graph_api.py` |
+| 14 | **Synthetic dataset generation** | Questions with known answers written from the document's own chunks: factoid, multi-hop, comparison, unanswerable and PII; deduplicated by embedding; each keeps its source chunk ids | `app/evaluation/datasets.py` | `test_evaluation_api.py` |
+| 14 | **Precision/recall, faithfulness** | Precision@5, Recall@5, MRR, nDCG@5 against the source chunks; judge-model faithfulness, relevancy and correctness; per-sentence grounding shown under each answer | `app/evaluation/metrics/`, `judge.py`, `grounding.py` | `test_eval_retrieval_metrics.py`, `test_eval_judge.py`, `test_grounding*.py` |
+| 14 | **Benchmarking and production selection** | Every strategy on the same questions; hard gates (faithfulness ≥ 0.85, injection block rate ≥ 95%, zero PII leaks, p95 ≤ 15 s) then a weighted score; per-document automatic selection; side-by-side comparison with caching | `app/evaluation/benchmark.py`, `app/rag_engines/compare.py`, `document_strategy.py` | `test_evaluation_benchmark.py`, `test_rag_compare.py`, `test_document_strategy.py` |
+| 15 | **Input/output validation, content filtering** | Input: length, encoding/obfuscation checks, injection detection, Llama Guard. Retrieval: indirect-injection scan of retrieved chunks. Output: PII leak redaction, secret/system-prompt leak block, Llama Guard, mandatory citations | `app/guardrails/` | `test_guardrails_*.py` |
+| 15 | **PII detection (Presidio NER)** | Presidio + spaCy with custom recognizers; HMAC tokens before chunking, so embeddings, indexes, graph and LLM never see raw PII; Fernet-encrypted vault with an audited reveal | `app/privacy/` | `test_pii.py`, `test_guardrails_output.py` |
+| 15 | **Prompt-injection defence, Llama Guard** | Regex heuristics, the `protectai/deberta-v3-base-prompt-injection-v2` classifier and `llama-guard3:1b`; untrusted-context delimiting in every prompt; a 42-attack / 15-benign red-team suite with a CI gate (block rate ≥ 95%, false positives ≤ 10%) | `app/guardrails/injection.py`, `llama_guard.py`, `redteam/` | `test_guardrails_injection.py`, `test_redteam.py`; `make redteam` |
 
-Every number any of these screens show is either read straight off a real backend response or
-computed from one — see docs/DECISIONS.md for the specific "Estimated vs. Verified" labeling
-rule and several real, non-cherry-picked benchmark results it records along the way.
+## How a question is answered
 
-## Hardware tiers
+```mermaid
+flowchart LR
+    U[Upload] --> P[Parse] --> R[Refine] --> V[PII vault] --> C[Chunk] --> E[Embed] --> I[(ChromaDB / Qdrant + BM25)]
+    C --> G[(Knowledge graph<br/>NetworkX / Neo4j)]
+    I --> M[Measure strategies<br/>on generated questions]
+    G --> M
+    M --> S{{Best strategy<br/>for this document}}
+    Q[Question] --> GI[Input guardrails] --> S --> RT[Retrieve + rerank / traverse / agent] --> A[Answer with citations] --> GO[Output guardrails] --> SC[Grounding score per sentence]
+```
 
-| Tier | RAM | LLMs | Council execution |
-|---|---|---|---|
-| `8gb` | 8 GB | smaller/fewer models recommended | runs members/reviewers sequentially |
-| `16gb` (default) | 16 GB+ | one answer model (`llama3.2:3b`, about 2.3 GB loaded) + `llama-guard3:1b` resident; council members load only while a council answer is written | one model call at a time (`LLM_MAX_CONCURRENCY`) |
+The **Workspace** tab shows each ingestion stage live, the recommended strategy with its
+measured scores, and answers that stream in with citation chips; unsupported sentences are
+underlined in red. **Architecture** draws the system from the code (packages, the compiled
+LangGraph) and animates real trace events. **Evaluation** has Usage (volume, quality, latency
+per stage, measured benchmark results), the **Knowledge graph** (explore it, or ask it a
+question and watch the traversal) and **Safety** (every guardrail decision, the audit log and
+the red-team suite). See [docs/USAGE.md](docs/USAGE.md).
 
-Set `HARDWARE_TIER` in `.env` — `app/council/service.py` reads it directly to decide
-sequential-vs-parallel execution for the council and model router.
+## Engineering
+
+- **CI** (`.github/workflows/ci.yml`): ruff, ruff format, mypy on `app/`, the pytest suite,
+  the retrieval suite again on Qdrant, graph-store parity against a real Neo4j and shared
+  rate limits against a real Redis (service containers), the red-team gate (block rate ≥ 95%,
+  false positives ≤ 10%), and the frontend's lint, unit tests and production build. Tests
+  that call a local model are marked `needs_ollama` and skipped with a reason where Ollama is
+  absent: without it, 376 pass at 81% line coverage; with it, every test runs for real.
+- **End-to-end**: 32 Playwright tests drive the real UI against the real backend and models
+  (`frontend/tests/e2e/`).
+- **Typed throughout**: Pydantic v2 models at every API boundary; TypeScript strict frontend
+  with a typed API client.
+- **Observability**: every pipeline stage emits a trace event (WebSocket `/ws/trace`), and
+  latency per stage is recorded and charted.
+- **Memory-aware**: designed for a 16 GB laptop; only the answer and guard models stay loaded,
+  everything else is unloaded after use (see `HARDWARE_TIER` in `.env.example`).
 
 ## Stack
 
-Backend: FastAPI, LangGraph, LiteLLM (Ollama by default; Groq/Gemini optional), sentence-
-transformers, bm25s, ChromaDB (Qdrant optional), NetworkX (Neo4j optional), spaCy, Docling,
-Presidio, SQLite + SQLAlchemy async. Frontend: Vite, React 19, TypeScript, Tailwind v4, Framer
-Motion, GSAP (installed, not yet used — see docs/VALIDATION_REPORT.md), @xyflow/react,
-react-force-graph-2d, Zustand, React Router, Playwright. Full rationale for notable choices
-lives in [docs/DECISIONS.md](docs/DECISIONS.md).
+Backend: FastAPI, LangGraph, LiteLLM (Ollama by default), sentence-transformers, bm25s,
+ChromaDB / Qdrant, NetworkX / Neo4j, spaCy, Docling, trafilatura, Presidio, transformers,
+SQLAlchemy (async, SQLite). Frontend: Vite, React 19, TypeScript, Tailwind v4, Framer Motion,
+@xyflow/react, react-force-graph-2d, ECharts, Zustand, Playwright, Vitest.
 
 ## Repo layout
 
 ```
-backend/app/     api, core, ingestion, privacy, chunking, embeddings, stores, retrieval,
-                 graphrag, agents, council, guardrails, profiler, evaluation, llm
-backend/scripts/ run_redteam.py (make redteam), run_eval.py (make eval)
-backend/tests/   pytest suite — real pipelines, real local LLM calls, no mocked backend logic
-frontend/src/    pages/ (the 6 app screens + landing), components/ui/ (design system),
-                 components/layout/ (app shell), hooks/, lib/api/ (typed client + SSE/WS),
-                 store/ (Zustand)
-frontend/tests/e2e/  Playwright E2E against a real running backend — see its own README
-data/demo/       bundled demo document (data/demo/hr_handbook.md) `make eval` runs against
-docs/            ARCHITECTURE, API, USAGE, GUARDRAILS, EVALUATION, BENCHMARKS, UI_MOTION,
-                 DECISIONS, VALIDATION_REPORT
+backend/app/       api, core, ingestion, privacy, chunking, embeddings, stores, retrieval,
+                   graphrag, agents, council, rag_engines, guardrails, profiler, evaluation, llm
+backend/scripts/   run_eval.py (make eval), run_redteam.py (make redteam), doctor.py
+backend/tests/     pytest suite: real pipelines and real local models, no mocked backend logic
+frontend/src/      pages (landing, Workspace, Architecture, Evaluation), components, hooks,
+                   typed API client (REST, SSE, WebSocket), Zustand store
+frontend/tests/    Vitest unit tests and Playwright end-to-end tests
+docs/              ARCHITECTURE, API, USAGE, EVALUATION, BENCHMARKS, GUARDRAILS,
+                   TROUBLESHOOTING, DECISIONS (every non-obvious choice and why)
 ```
 
-## Troubleshooting
+## Limitations
 
-- **"Ollama unreachable" in `/health`.** Install from [ollama.com](https://ollama.com) and make
-  sure it's running (`ollama serve`, or just open the app) — `OLLAMA_BASE_URL` in `.env` defaults
-  to `http://localhost:11434`.
-- **`uv sync` can't find Python 3.11.** `uv python install 3.11` fetches it; no system Python
-  change needed.
-- **A chat/council/advisor call is slow or times out.** Everything LLM-backed in this project
-  runs against your local Ollama models by default — the first call to a given model pays a
-  cold-load cost, and the agentic/council modes make several sequential model calls per turn.
-  Measured, real latencies (not estimates) are in docs/DECISIONS.md and docs/BENCHMARKS.md.
-- **Dev DB schema errors after pulling new code.** `Base.metadata.create_all()` only adds new
-  tables, it never alters existing ones. Delete `backend/var/data/` (dev data is disposable)
-  and restart — this comes up any time a column was added to an existing table; see
-  docs/DECISIONS.md for the recurring note on this.
+- Local 3B models are fast enough for a laptop but weaker judges than large hosted models;
+  every score in the UI says how many questions it rests on, and small samples are labelled.
+- The Agentic and Council strategies take 15–40 s per answer on a laptop, so they are
+  recommended when they measure best but never switched to automatically.
+- SQLite is the application database: right for a single-user local tool, not for many
+  concurrent writers.
+
+See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for setup problems.
