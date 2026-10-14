@@ -5,10 +5,14 @@ and picks which retrieval tools the Retriever node should use.
 from __future__ import annotations
 
 import logging
+from typing import Any, Literal
+
+from pydantic import BaseModel, ValidationError, field_validator
 
 from app.agents.state import AgentState, record_step
+from app.core.config import get_settings
 from app.core.tracing import trace_bus
-from app.llm.client import LlmUnavailableError, complete
+from app.llm.client import LlmUnavailableError, complete, complete_tool_call
 from app.llm.json_utils import extract_json_object
 
 logger = logging.getLogger(__name__)
@@ -62,7 +66,131 @@ def _heuristic_fallback(query: str) -> dict:
     return {"category": category, "sub_questions": [query], "tools": tools}
 
 
-async def plan(query: str, model: str | None = None) -> dict:
+PLAN_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "plan_retrieval",
+        "description": (
+            "Record how to answer the user's question about their document: its category, the "
+            "sub-questions to look up, and which retrieval tools to use."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "enum": list(CATEGORIES),
+                    "description": (
+                        "summary: an overview, history or 'tell me about' question spanning "
+                        "the document. factoid: one fact, including 'what is X' and 'how does "
+                        "X work'. multi_hop: needs several facts combined. comparison: compares "
+                        "things. pii_lookup: asks for a person's contact details. "
+                        "out_of_scope: unrelated to any document."
+                    ),
+                },
+                "sub_questions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "1-4 self-contained questions; just the question if simple.",
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": list(ALL_TOOLS)},
+                    "description": (
+                        "hybrid_search for almost everything; graph_traverse when entities "
+                        "must be connected; pii_vault_lookup for contact details."
+                    ),
+                },
+            },
+            "required": ["category", "sub_questions", "tools"],
+        },
+    },
+}
+
+
+# The same guidance the JSON prompt gives, for the tool call: without it the model sent
+# narrow questions ("What are the types of X?") down the slower document-wide summary route.
+_TOOL_PROMPT = (
+    "Call plan_retrieval for this question about the user's document.\n"
+    "- category 'summary' ONLY for an overview, history or 'tell me about X' question that "
+    "spans the whole document.\n"
+    "- category 'factoid' for one fact or definition, including 'what is X', 'how does X "
+    "work' and 'what are the types of X'.\n"
+    "- 'multi_hop' when several facts must be combined, 'comparison' when things are "
+    "compared, 'pii_lookup' for a person's contact details, 'out_of_scope' when unrelated "
+    "to any document.\n"
+    "- sub_questions: just the question itself unless it has several separate parts.\n"
+    "- tools: hybrid_search, plus graph_traverse only when entities must be connected.\n\n"
+    "Question: {query}"
+)
+
+
+class PlanArgs(BaseModel):
+    """Validates a native tool call's arguments. Small models send lists as JSON strings or
+    null; those shapes are repaired here rather than rejected."""
+
+    category: Literal["factoid", "multi_hop", "comparison", "summary", "pii_lookup", "out_of_scope"]
+    sub_questions: list[str] = []
+    tools: list[str] = []
+
+    @field_validator("sub_questions", "tools", mode="before")
+    @classmethod
+    def _listify(cls, value: Any) -> list:
+        import json
+
+        if value is None:
+            return []
+        if isinstance(value, str):
+            try:
+                decoded = json.loads(value)
+            except ValueError:
+                return [value] if value.strip() else []
+            return decoded if isinstance(decoded, list) else [str(decoded)]
+        return list(value)
+
+
+def _normalise(category: str, sub_questions: list, tools: list, query: str) -> dict:
+    subs = [str(q) for q in sub_questions if str(q).strip()][:4] or [query]
+    picked = [t for t in tools if t in ALL_TOOLS]
+    if category == "pii_lookup":
+        picked = picked or ["pii_vault_lookup"]
+    elif "hybrid_search" not in picked:
+        picked = ["hybrid_search", *picked]
+    return {"category": category, "sub_questions": subs, "tools": picked}
+
+
+async def plan_with_tool_call(query: str, model: str | None = None) -> dict | None:
+    """The plan from a native tool call, or None when the model gave no valid one."""
+    try:
+        arguments = await complete_tool_call(
+            _TOOL_PROMPT.format(query=query), PLAN_TOOL, model=model
+        )
+    except LlmUnavailableError:
+        return None
+    if not arguments:
+        return None
+    try:
+        args = PlanArgs.model_validate(arguments)
+    except ValidationError:
+        return None
+    return {**_normalise(args.category, args.sub_questions, args.tools, query), "via": "tool_call"}
+
+
+async def plan(query: str, model: str | None = None, mode: str | None = None) -> dict:
+    """PLANNER_MODE picks the method. "tool_call": the model's native tool calling, falling back
+    to the JSON prompt when it gives no valid call. "json" (the default): the JSON prompt.
+    Measured on tests/fixtures/planner_routing.json with llama3.2:3b (`make planner-eval`), the
+    JSON prompt routed more questions correctly, so it is the default for that model; a
+    model that does better with native tools is one setting away. Keyword heuristics apply
+    when no model is reachable."""
+    if (mode or get_settings().planner_mode) == "tool_call":
+        planned = await plan_with_tool_call(query, model)
+        if planned is not None:
+            return planned
+    return {**await _plan_with_json(query, model), "via": "json"}
+
+
+async def _plan_with_json(query: str, model: str | None = None) -> dict:
     prompt = _PLANNER_PROMPT.format(categories=list(CATEGORIES), tools=list(ALL_TOOLS), query=query)
     try:
         raw = await complete(prompt, model=model, max_tokens=400, temperature=0.0)
@@ -91,11 +219,16 @@ async def plan(query: str, model: str | None = None) -> dict:
 async def planner_node(state: AgentState) -> dict:
     async with trace_bus.stage(state["session_id"], "planner", to_stage="rewriter") as h:
         result = await plan(state["query"])
+        via = result.pop("via", "heuristic")
+        h.set_metric("planned_via", via)
         h.set_metric("category", result["category"])
         h.set_metric("sub_question_count", len(result["sub_questions"]))
         h.set_output(f"category={result['category']} tools={result['tools']}")
 
-    summary = f"Classified as {result['category']}, {len(result['sub_questions'])} sub-question(s)."
+    summary = (
+        f"Classified as {result['category']}, {len(result['sub_questions'])} sub-question(s), "
+        f"tools {', '.join(result['tools'])} (planned by {via.replace('_', ' ')})."
+    )
     return {
         **result,
         "agent_steps": record_step(state, "planner", summary),

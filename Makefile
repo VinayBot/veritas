@@ -1,4 +1,4 @@
-.PHONY: setup dev test lint format eval redteam models doctor demo up down backend-dev frontend-dev backend-test frontend-test backend-lint frontend-lint pii-eval
+.PHONY: setup dev test lint format eval redteam models doctor demo up down backend-dev frontend-dev backend-test frontend-test backend-lint frontend-lint pii-eval planner-eval
 
 # Some machines only have the standalone `docker-compose` binary, others only the `docker
 # compose` plugin — detected at runtime rather than hardcoding one and breaking on the other.
@@ -42,6 +42,9 @@ redteam:
 
 pii-eval:
 	cd backend && uv run python scripts/eval_pii.py
+
+planner-eval:
+	cd backend && uv run python scripts/eval_planner.py
 
 # Pre-downloads and verifies every model (Docling, spaCy/Presidio, embedder, reranker) plus
 # Ollama + vector-store reachability — run this once after `make setup` so the cold-cache cost

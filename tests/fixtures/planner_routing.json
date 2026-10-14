@@ -1,0 +1,21 @@
+{
+  "description": "Questions labelled with the planner category that should route them. Used by `make planner-eval` to compare the JSON-prompt and native tool-calling planners.",
+  "cases": [
+    {"question": "How many vacation days do employees get?", "category": "factoid"},
+    {"question": "Who approves business travel over $5,000?", "category": "factoid"},
+    {"question": "What are the types of chatbots?", "category": "factoid"},
+    {"question": "Explain how chatbots work", "category": "factoid"},
+    {"question": "What is Dialogflow?", "category": "factoid"},
+    {"question": "How long is the laptop warranty?", "category": "factoid"},
+    {"question": "What is chatbot history?", "category": "summary"},
+    {"question": "Give me an overview of this document", "category": "summary"},
+    {"question": "Tell me about the remote work policy", "category": "summary"},
+    {"question": "Summarize the expense policy", "category": "summary"},
+    {"question": "Compare the remote work and travel approval rules.", "category": "comparison"},
+    {"question": "How does parental leave differ from sick leave?", "category": "comparison"},
+    {"question": "Which manager approves expenses for employees who travel to restricted countries?", "category": "multi_hop"},
+    {"question": "What is Elena Petrova's phone number?", "category": "pii_lookup"},
+    {"question": "What is the email of the policy owner?", "category": "pii_lookup"},
+    {"question": "What will the weather be in Paris tomorrow?", "category": "out_of_scope"}
+  ]
+}

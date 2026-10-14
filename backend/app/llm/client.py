@@ -335,6 +335,69 @@ async def complete(
     return content or ""
 
 
+async def complete_tool_call(
+    prompt: str,
+    tool: dict[str, Any],
+    model: str | None = None,
+    system: str | None = None,
+    max_tokens: int = 300,
+    temperature: float = 0.0,
+    timeout: float = 30.0,
+) -> dict[str, Any] | None:
+    """Native tool calling: the model is offered one function (an OpenAI-style tool schema)
+    and must call it. Returns the call's arguments, or None when the model answered without a
+    usable tool call. Ollama models go through LiteLLM's `ollama_chat/` route, which uses
+    Ollama's /api/chat tool support rather than prompting for JSON."""
+    import json
+
+    import litellm
+
+    model_name = model or get_model_config().generator
+    if model_name.startswith("ollama/"):
+        model_name = "ollama_chat/" + model_name.split("/", 1)[1]
+    _consume_budget(model_name)
+    messages: list[dict[str, str]] = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+    kwargs: dict = {
+        "model": model_name,
+        "messages": messages,
+        "tools": [tool],
+        "tool_choice": "required",
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "timeout": timeout,
+    }
+    kwargs.update(_ollama_options(model_name))
+    try:
+
+        async def send() -> Any:
+            async with _local_slot(model_name):
+                return await litellm.acompletion(**kwargs)
+
+        response = await (_preemptible(send) if _level.get() > CHAT else send())
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — provider-specific exception types
+        logger.warning("Tool call to %s failed: %s", model_name, exc)
+        raise LlmUnavailableError(f"{model_name} unavailable: {exc}") from exc
+    _record_usage(model_name, response)
+    await _release(model_name)
+    calls = response.choices[0].message.tool_calls or []
+    wanted = tool["function"]["name"]
+    for call in calls:
+        if call.function.name != wanted:
+            continue
+        arguments = call.function.arguments
+        try:
+            parsed = json.loads(arguments) if isinstance(arguments, str) else dict(arguments)
+        except (ValueError, TypeError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+    return None
+
+
 async def stream_complete(
     prompt: str,
     model: str | None = None,

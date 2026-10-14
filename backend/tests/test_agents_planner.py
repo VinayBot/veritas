@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from app.agents.planner import CATEGORIES, _heuristic_fallback, plan
 
 
@@ -40,3 +42,48 @@ async def test_plan_real_llm_call_returns_well_formed_result() -> None:
         t in ("hybrid_search", "graph_traverse", "pii_vault_lookup", "metadata_filter")
         for t in result["tools"]
     )
+
+
+def test_tool_call_arguments_are_repaired_not_rejected() -> None:
+    from app.agents.planner import PlanArgs, _normalise
+
+    args = PlanArgs.model_validate(
+        {"category": "pii_lookup", "sub_questions": "[]", "tools": '["pii_vault_lookup"]'}
+    )
+    assert args.tools == ["pii_vault_lookup"] and args.sub_questions == []
+    plan = _normalise(args.category, args.sub_questions, args.tools, "Who is on call?")
+    assert plan == {
+        "category": "pii_lookup",
+        "sub_questions": ["Who is on call?"],
+        "tools": ["pii_vault_lookup"],
+    }
+    # Retrieval always includes hybrid search unless it is a contact lookup.
+    assert _normalise("comparison", [], ["graph_traverse"], "q")["tools"] == [
+        "hybrid_search",
+        "graph_traverse",
+    ]
+
+
+async def test_a_missing_tool_call_falls_back_to_the_json_plan(monkeypatch) -> None:
+    from app.agents import planner
+
+    async def no_call(*_a, **_k):
+        return None
+
+    async def json_reply(*_a, **_k):
+        return '{"category": "factoid", "sub_questions": ["q"], "tools": ["hybrid_search"]}'
+
+    monkeypatch.setattr(planner, "complete_tool_call", no_call)
+    monkeypatch.setattr(planner, "complete", json_reply)
+    result = await planner.plan("q")
+    assert result["via"] == "json" and result["category"] == "factoid"
+
+
+@pytest.mark.needs_ollama
+async def test_the_planner_uses_a_native_tool_call() -> None:
+    from app.agents.planner import plan
+
+    result = await plan("Compare the remote work and the travel approval rules.", mode="tool_call")
+    assert result["via"] == "tool_call"
+    assert result["category"] in ("comparison", "multi_hop")
+    assert "hybrid_search" in result["tools"]
