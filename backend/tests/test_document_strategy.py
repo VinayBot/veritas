@@ -150,3 +150,29 @@ async def test_measurements_cut_off_by_a_restart_are_marked_for_rerunning(
     doc = (await client.get(f"/api/v1/documents/{document_id}")).json()
     assert doc["measure_status"] == "failed"
     assert "restart" in doc["measure_error"]
+
+
+async def test_a_requested_measurement_does_not_wait_behind_automatic_ones(monkeypatch) -> None:
+    """Uploads keep queueing automatic measurements, newest first. Re-measure must not join
+    that queue, or it could wait indefinitely while holding the job slot."""
+    statuses: list[str] = []
+
+    async def fake_update(document_id, **fields):  # noqa: ANN001, ANN003, ARG001
+        statuses.append(fields.get("measure_status", ""))
+        if fields.get("measure_status") == "running":
+            raise RuntimeError("reached the measurement")
+
+    monkeypatch.setattr(document_strategy, "_update", fake_update)
+    release = asyncio.Event()
+
+    async def automatic_in_progress() -> None:
+        async with document_strategy._measure_slot():
+            await release.wait()
+
+    holder = asyncio.ensure_future(automatic_in_progress())
+    await asyncio.sleep(0.01)
+    with pytest.raises(RuntimeError):
+        await asyncio.wait_for(document_strategy.auto_measure("doc", requested=True), 2)
+    assert statuses == ["queued", "running"]
+    release.set()
+    await holder

@@ -50,6 +50,11 @@ def _queue() -> _NewestFirst:
 
 
 @asynccontextmanager
+async def _no_slot() -> AsyncIterator[None]:
+    yield
+
+
+@asynccontextmanager
 async def _measure_slot() -> AsyncIterator[None]:
     queue = _queue()
     async with queue.cond:
@@ -125,7 +130,10 @@ async def auto_measure(document_id: str, *, requested: bool = False) -> dict[str
     if not requested:
         llm_client.mark_background(llm_client.HOUSEKEEPING)
     await _update(document_id, measure_status="queued", measure_error=None)
-    async with _measure_slot():  # one at a time, newest upload first
+    # Automatic measurements take turns, newest upload first. One the user asked for does not
+    # queue: the automatic one running yields to it at every model call (job priority), and
+    # queueing it behind uploads that keep arriving could keep it waiting indefinitely.
+    async with _measure_slot() if not requested else _no_slot():
         await _update(document_id, measure_status="running")
         try:
             async with session_scope() as session:
