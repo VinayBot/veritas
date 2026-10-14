@@ -36,7 +36,8 @@ before → after for faithfulness, relevance, correctness, recall and speed. It 
 gain that was not measured.
 
 **History.** Conversations are kept per document in the browser, so a reload or coming back
-to an earlier document (document switcher, top right) shows the same chat. "Clear chat"
+to an earlier document (document switcher, top right, which lists every ingested file) shows
+the same chat. "Clear chat"
 removes it.
 
 ## 2. Architecture — how it works, live
@@ -52,17 +53,20 @@ removes it.
 - Faint drifting dashes only show which way an edge flows. Click any node for its purpose,
   configuration, recent events and source file. **Export** saves PNG, SVG or the JSON.
 
-## 3. Evaluation — one dashboard, five views
+## 3. Evaluation — one dashboard, three views
 
 | View | What it answers |
 | --- | --- |
-| **Quality** | How good is each strategy on this document? Run an evaluation (questions with known answers), then read faithfulness, relevance, precision/recall@5, the trend across runs, the per-strategy table and radar, speed, release gates, and the chunking advisor. |
-| **Usage** | What did real questions look like? Volume and quality by day, strategy mix, time per pipeline stage, reliability, index size. |
-| **Knowledge graph** | The entities and relations read from the document. **Ask the graph** a question: the traversal lights up entity by entity and a real answer is written through the graph strategy. |
+| **Usage** | What did real questions look like? Volume and quality by day, strategy mix, time per pipeline stage, reliability. Below that, **Measured quality**: run an evaluation and read faithfulness, relevance, precision/recall@5, the trend across runs, the per-strategy table and radar, speed, release gates and the chunking advisor. |
+| **Knowledge graph** | The entities, concepts and relations read from the document. **Ask the graph** a question: the traversal lights up and a real answer is written through the graph strategy. **Rebuild graph** reads it again (about a minute). |
 | **Safety** | Guardrail decisions on real questions, trips by rule, the audit log, and a red-team suite you can run. |
-| **Corpus** | Every ingested document; pick one to work with. |
 
-Numbers are labelled **Verified** (checked against ground truth from the eval set) or
+An evaluation or comparison uses **at most five questions** (three for the agent strategies),
+picked across question types, so two or three strategies finish in one to two minutes. Every
+result shows the number of questions it rests on, and anything under ten is labelled a small
+sample.
+
+Numbers are labelled **Verified** (checked against ground truth from the question set) or
 **Estimated** (a judge model's opinion, no reference answer). A change is only shown against
 the previous run on the same questions.
 
@@ -74,7 +78,8 @@ a line. Every control is reachable with Tab; reduced-motion preferences are resp
 
 ## Memory and speed on a 16 GB laptop
 
-Only two models stay in memory: the answer model and the small safety model. Lighter:
+Only two models stay in memory: the answer model and the small safety model. Any other
+model (a council member, a separately chosen judge) is unloaded as soon as it has replied. Lighter:
 `DEFAULT_LLM_MODEL=ollama/llama3.2:3b`. Better at following length and citation instructions:
 `ollama/gemma3:4b`. Larger models are only loaded if you pick them. See
 `docs/TROUBLESHOOTING.md` if answers are slow.

@@ -256,3 +256,11 @@ animated on recurring motion.
 `prefers-reduced-motion` collapses CSS animation globally (`index.css`) and every Framer
 Motion transition checks `useReducedMotion`; packets, ripples and chart animation are skipped
 while state changes still show.
+
+Added in the second pass: cards and panels rise in with a 45 ms stagger (`.rise-in`,
+`.stagger`); a sheen crosses a KPI card on hover; healthy status dots emit a slow halo; the
+Deep reasoning button breathes while on; an answer being written ends in a caret; the
+Architecture canvas has a drifting blueprint grid and a scan line that sweeps once on load, on
+a view change and when a walkthrough starts; the walkthrough sends a three-packet stream per
+hop; nodes lift on hover. All of it is decoration except the caret (real streaming) and the
+status halo (a probe that really returned healthy).

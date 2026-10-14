@@ -80,30 +80,35 @@ export function ArchitecturePage() {
     if (!animating) cancelAllPackets()
   }, [animating])
 
+  /** Draws the hop an event stands for. "pending" means there is a hop but its edge is not
+   * on screen yet (the view is still being built), so the caller should try again. */
   const fire = useCallback(
-    (event: TraceEvent, earlier: TraceEvent[]) => {
+    (event: TraceEvent, earlier: TraceEvent[]): 'none' | 'drawn' | 'pending' => {
       const scene = sceneRef.current
       // Reduced motion: the event is still listed and the node still changes state; only
       // the travelling packet is skipped.
-      if (!graph || !scene || reduced) return
+      if (!graph || !scene || reduced) return 'none'
       const hop = hopFor(event, earlier, graph)
-      if (!hop) return
+      if (!hop) return 'none'
       const edges = hop.edgeIds.map((id) => scene.edgeFor[id]).filter((id, i, all): id is string => !!id && all.indexOf(id) === i)
-      if (edges.length === 0) return
+      if (edges.length === 0) return 'none'
       const perEdge = packetDurationMs(hop.measuredMs) / edges.length
-      edges.forEach((edgeId, i) => {
+      const drawn = edges.map((edgeId, i) => {
         const kind = scene.edges.find((e) => e.id === edgeId)?.kind ?? 'data'
-        emitPacket(edgeId, { durationMs: perEdge, delayMs: i * perEdge, kind })
+        return emitPacket(edgeId, { durationMs: perEdge, delayMs: i * perEdge, kind })
       })
+      return drawn.some(Boolean) ? 'drawn' : 'pending'
     },
     [graph, reduced],
   )
 
   // One packet per real hop, only for events that are happening now.
+  const [retryTick, setRetryTick] = useState(0)
   useEffect(() => {
     // Wait until there is a diagram to draw on; otherwise early events would be marked as
     // handled without ever being shown.
     if (replayEvents !== null || !graph || !sceneRef.current) return
+    let pending = false
     for (const event of liveEvents) {
       const key = eventKey(event)
       if (seenRef.current.has(key)) continue
@@ -114,10 +119,15 @@ export function ArchitecturePage() {
       // A live event that arrives before the socket is reported open is left for the next
       // pass rather than dropped.
       if (!socketOpen) continue
-      seenRef.current.add(key)
-      fire(event, liveEvents)
+      // So is one whose edge is not drawn yet, which happens when the view was opened or
+      // switched a moment ago. It is retried until it is drawn or stops being current.
+      if (fire(event, liveEvents) === 'pending') pending = true
+      else seenRef.current.add(key)
     }
-  }, [liveEvents, socketOpen, fire, replayEvents, graph, sceneReady])
+    if (!pending) return
+    const timer = window.setTimeout(() => setRetryTick((n) => n + 1), 250)
+    return () => window.clearTimeout(timer)
+  }, [liveEvents, socketOpen, fire, replayEvents, graph, sceneReady, retryTick])
 
   const activity = useMemo(() => {
     if (!graph) return {}

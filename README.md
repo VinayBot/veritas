@@ -23,10 +23,10 @@ cp ../.env.example ../.env   # defaults are free/local; edit if you want cloud L
 uv run uvicorn app.main:app --reload --port 8000
 
 # 2. Pull the local models (first run only)
-ollama pull llama3.2:3b              # default/fast model + chairman
-ollama pull qwen2.5:7b-instruct      # council member / stronger model-router target
-ollama pull gemma2:2b                # second council member
-ollama pull llama-guard3:1b          # output-safety classifier
+ollama pull llama3.2:3b              # default answer model (2 GB, fastest)
+ollama pull llama-guard3:1b          # safety classifier
+ollama pull gemma3:4b                # optional: better at length and citations (3.3 GB)
+ollama pull gemma2:2b                # optional: only for the opt-in council strategy
 
 # 3. Frontend (separate terminal)
 cd frontend
@@ -66,8 +66,8 @@ corpus; `make test` / `make lint` run both halves' real test and lint suites.
   switching, a per-document strategy recommendation with a measured before/after, and a
   per-answer analysis panel. **Architecture**: a diagram generated from the code, live health
   probes, a self-check, and packets driven by the `/ws/trace` WebSocket. **Evaluation**: one
-  dashboard with Quality, Usage, Knowledge graph (with "ask the graph"), Safety and Corpus
-  views. See [docs/USAGE.md](docs/USAGE.md).
+  dashboard with Usage (including measured quality), Knowledge graph (with "ask the graph")
+  and Safety views. See [docs/USAGE.md](docs/USAGE.md).
 
 Every number any of these screens show is either read straight off a real backend response or
 computed from one — see docs/DECISIONS.md for the specific "Estimated vs. Verified" labeling
@@ -78,7 +78,7 @@ rule and several real, non-cherry-picked benchmark results it records along the 
 | Tier | RAM | LLMs | Council execution |
 |---|---|---|---|
 | `8gb` | 8 GB | smaller/fewer models recommended | runs members/reviewers sequentially |
-| `16gb` (default) | 16 GB+ | `llama3.2:3b` + `qwen2.5:7b-instruct` + `gemma2:2b` | runs members/reviewers concurrently |
+| `16gb` (default) | 16 GB+ | one answer model (`llama3.2:3b` or `gemma3:4b`) + `llama-guard3:1b` resident; council members load only while a council answer is written | one model call at a time (`LLM_MAX_CONCURRENCY`) |
 
 Set `HARDWARE_TIER` in `.env` — `app/council/service.py` reads it directly to decide
 sequential-vs-parallel execution for the council and model router.

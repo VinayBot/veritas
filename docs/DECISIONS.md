@@ -1280,3 +1280,94 @@ deltas with n. With fewer than 10 questions the result is labelled a small sampl
 events. Two things are decoration and say so in the legend/banner: the faint dashes that show
 an edge's direction, and "Play request path", a hand-started walkthrough of declared request
 edges.
+
+
+## Second pass: comparison speed, a graph that always appears, three Evaluation views
+
+Reported by the owner: a comparison sat at 0%, the knowledge graph was empty, and everything
+was slow. All three had one root: graph extraction after an upload made one 800-token model
+call per chunk (4-6 minutes for a 23-chunk PDF) on a server that answers one request at a
+time. It timed out before saving anything, and comparisons queued behind it.
+
+**Three priority levels** (`app/llm/client.py`): chat, then work the user is watching (a
+comparison, an evaluation, scoring), then housekeeping (graph extraction). A call waits for
+anything more urgent and is abandoned and restarted if something more urgent starts.
+
+**Graph building is two passes and cannot leave nothing behind.** Named entities come from
+local NER for every chunk and are saved immediately. Relations are then read by the model for
+the eight most entity-dense chunks only, eight relations and 320 tokens each, saved after
+each chunk, inside a 150-second budget. Measured on the 23-chunk PDF: 81 s, 248 entities, 41
+relations (previously: timeout, nothing). The cost is coverage: chunks beyond the eight are
+not read for relations, and the build result says how many were skipped.
+
+**Concept nodes.** A relation whose subject or object is not a named entity ("dialog manager
+decides response message") used to be dropped, which left technical documents with no
+relations at all. Such a subject or object now becomes a `CONCEPT` node when it is six words
+or fewer. This is the model's reading of the passage, so it is less reliable than NER.
+
+**Numbers and dates are not graph entities.** CARDINAL, ORDINAL, QUANTITY, PERCENT, MONEY,
+DATE and TIME are excluded: they became hubs ("annually", "1") that linked unrelated passages
+and matched any question containing a digit.
+
+**The chunking tournament no longer runs on every upload.** It re-chunks, re-embeds and scores
+several candidates — minutes of model time — and it also timed out and marked enrichment as
+failed. It runs on request from Evaluation. Enrichment stages are now independent: a failed
+graph pass no longer costs the document its profile.
+
+**One judge call per answer instead of three** (`judge.score_all`): faithfulness, relevancy
+and correctness are asked for together with the same rubric wording. A side-by-side on one
+sample gave 0.9 / 0.4 from single calls and 0.7 / 0.8 from the combined call for correctness /
+relevancy: small-model judging is noisy either way, and this was not studied beyond that
+sample. Scores from before and after this change should not be compared closely.
+
+**At most five questions per run**, three for the agent strategies, picked in turn from each
+question type. With one judge call each, two strategies on five questions is about a minute.
+Fewer questions means less statistical weight; the UI shows n and labels the result a small
+sample.
+
+**Strategies are evaluated one at a time.** Interleaving two on a single-request server
+finished no sooner and made every measured latency include the other strategy's queueing.
+
+**Progress is reported before each step**, so the bar and its message move while the first
+question is still being answered.
+
+**Evaluation has three views**: Usage (with measured quality below it), Knowledge graph,
+Safety. Corpus is removed; the document switcher in the header lists every file.
+
+## Third pass: found by pressing every button
+
+`frontend/tests/e2e/everything.spec.ts` presses each control against the real backend. Its
+first run failed six of ten tests; three were mistakes in the test, three were bugs:
+
+**A removed model stayed selected.** The 7B model was deleted from the machine at the owner's
+request, but it had been saved as the answer model, so every answer failed in under a second
+with "the language model is unavailable". Saved choices are now checked against what Ollama
+has installed at startup and whenever the model list is read; a missing one is dropped and
+the configured default takes over (`models_catalog.reconcile_selection`). Nothing is checked
+when Ollama cannot be reached.
+
+**Extra models stayed in memory.** A council answer left its member models loaded next to the
+answer model. Models other than the answer model and the guard model are now unloaded
+explicitly after each call (`llm/client._release`). The `keep_alive` request option was tried
+first and is not forwarded on every LiteLLM route. Cost: a council answer reloads its members
+each time, which is slower; the council is opt-in.
+
+**Graph queries were not scoped to the document.** `GET /graph/{id}?query=` linked the query
+against every document's entities, and when nothing in this document matched it returned the
+whole graph — so a filter always appeared to match, and "ask the graph" could light up
+unrelated entities. Linking, traversal and the response are now limited to the document, an
+unmatched query returns nothing, and the name-match threshold went from 60 to 80 with names
+under four characters ignored. Recall is lower as a result: a misspelt entity name no longer
+links.
+
+**The model settings dialog needed two presses of Escape** (the same focus-on-a-tooltip
+problem as the Architecture drawer).
+
+**Packets are drawn by looking the edge up when the event arrives** (`architecture/packets.ts`),
+not through a subscription each edge component keeps. Subscriptions made in effects were torn
+down on re-render and on canvas rebuilds, and real packets were lost in the gap. The route is
+sampled from the SVG path actually on screen, so it also follows a re-laid-out edge. A hop
+whose edge is not rendered yet is retried every 250 ms while the event is still current.
+
+**No hover movement on diagram nodes.** Moving an element under the pointer ends its own
+hover; the result was a flicker loop. Hover feedback on nodes is opacity only.

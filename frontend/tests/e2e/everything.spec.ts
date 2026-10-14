@@ -156,13 +156,14 @@ test('Header: document switcher (filter, select, delete), theme toggle, command 
   await page.locator('li', { has: page.getByTestId(`document-option-${id}`) }).getByRole('button', { name: /^Delete / }).click()
   await page.getByTestId('confirm-accept').click()
   await expect.poll(async () => (await page.request.get(`${API}/documents/${id}`)).status(), { timeout: 30_000 }).toBe(404)
-  await page.keyboard.press('Escape')
+  // The list closes by itself when the working document is deleted.
+  await expect(page.getByLabel('Filter documents')).toBeHidden({ timeout: 15_000 })
   await expect(page.getByTestId('workspace-empty')).toBeVisible({ timeout: 30_000 })
 
   const html = page.locator('html')
-  await page.getByRole('button', { name: 'Switch to light theme' }).click()
+  await page.getByRole('switch', { name: 'Switch to light theme' }).click()
   await expect(html).toHaveClass(/light/)
-  await page.getByRole('button', { name: 'Switch to dark theme' }).click()
+  await page.getByRole('switch', { name: 'Switch to dark theme' }).click()
   await expect(html).not.toHaveClass(/light/)
 
   await page.getByRole('button', { name: 'Open the command palette' }).click()
@@ -226,7 +227,8 @@ test('Evaluation: usage window, table fallbacks, a run with per-question drill-d
   await table.locator('tbody tr').first().click()
   const samples = page.getByTestId('eval-samples')
   await expect(samples).toBeVisible()
-  await expect(samples.locator('tbody tr').first()).toContainText(/\?/, { timeout: 30_000 })
+  // A real question from the eval set, with its measured latency.
+  await expect(samples.locator('tbody tr').first()).toContainText(/[A-Za-z]{4,}.*\d(ms|s)/s, { timeout: 30_000 })
   await expect(page.getByTestId('eval-gates')).toContainText('Faithfulness')
   // Sorting a column re-orders without losing rows.
   const rows = await table.locator('tbody tr').count()

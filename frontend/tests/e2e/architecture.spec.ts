@@ -69,10 +69,14 @@ test('a node opens a drawer with purpose, config, real trace events and its sour
   await openArchitecture(page)
   await page.getByTestId('view-mode-detailed').click()
   const node = page.getByTestId('arch-node-retrieval')
-  await node.focus()
-  await page.keyboard.press('Enter')
   const drawer = page.getByTestId('node-drawer')
-  await expect(drawer).toBeVisible()
+  // The canvas is rebuilt when the view changes, so a key pressed in the first instant can
+  // land on a node that is about to be replaced. Retried like a person would.
+  await expect(async () => {
+    await node.focus()
+    await page.keyboard.press('Enter')
+    await expect(drawer).toBeVisible({ timeout: 1500 })
+  }).toPass({ timeout: 15_000 })
   await expect(drawer).toContainText('Retrieval')
   await expect(drawer.getByTestId('node-config')).toContainText('rrf k')
   await expect(drawer.getByTestId('node-source-path')).toHaveText('backend/app/retrieval')
@@ -116,9 +120,14 @@ test('exports the real topology payload as JSON', async ({ page, request }) => {
 
 async function uploadAndOpenLive(page: Page) {
   await page.goto('/app')
-  await page.locator('input[type="file"]').setInputFiles(path.join(import.meta.dirname, 'fixture.md'))
+  // The sample PDF, not the tiny fixture: its background graph pass takes long enough that
+  // the next stage (profile) starts while the Live view is open, which is the real hop the
+  // tests below watch for. The tiny fixture now finishes before the view can be opened.
+  await page
+    .locator('input[type="file"]')
+    .setInputFiles(path.join(import.meta.dirname, '../../../data/demo/northwind_remote_work_travel_policy.pdf'))
   // Do not wait for "ready": the point is to watch the pipeline while it is still running.
-  await expect(page.getByTestId('document-switcher')).toContainText('fixture.md', { timeout: 30_000 })
+  await expect(page.getByTestId('document-switcher')).toContainText('northwind', { timeout: 30_000 })
   await page.getByRole('link', { name: 'Architecture' }).click()
   await page.getByTestId('view-mode-live').click()
 }

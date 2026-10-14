@@ -76,7 +76,7 @@ and gates on block rate (>=95%) and false-positive rate (<=10%) — `make redtea
 `frontend/src/pages/` — three tabs and a landing page. **Workspace** (upload, streamed chat,
 strategy and model pickers, recommendation, per-answer analysis), **Architecture** (xyflow
 diagram generated from `GET /architecture/graph`, driven by the trace WebSocket) and
-**Evaluation** (`components/evaluation/`: Quality, Usage, Knowledge graph, Safety, Corpus;
+**Evaluation** (`components/evaluation/`: Usage with measured quality, Knowledge graph, Safety;
 charts are ECharts through `components/charts/EChart.tsx`, which reads its colours from the
 design tokens). Design tokens live in `src/styles/tokens.css`. `frontend/src/lib/api/`
 is the one typed client every page goes through; `frontend/src/hooks/useTraceEvents.ts` is the

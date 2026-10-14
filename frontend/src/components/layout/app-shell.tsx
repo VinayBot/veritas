@@ -20,6 +20,12 @@ export const NAV_ITEMS: { to: string; label: string; icon: LucideIcon; end: bool
   { to: '/app/evaluation', label: 'Evaluation', icon: FlaskConical, end: false },
 ]
 
+const EVALUATION_VIEWS = [
+  { view: 'usage', label: 'Usage and quality' },
+  { view: 'graph', label: 'Knowledge graph' },
+  { view: 'safety', label: 'Safety' },
+]
+
 function HealthBadge({ health, failed }: { health: HealthResponse | null; failed: boolean }) {
   if (failed) return <Badge variant="destructive">backend unreachable</Badge>
   if (!health) return <Badge variant="outline">checking…</Badge>
@@ -98,6 +104,14 @@ export function AppShell() {
         icon: <Icon className="size-4" />,
         group: 'Navigate',
         onSelect: () => navigate(to),
+      })),
+      // Registered here rather than by the Evaluation page, so they work from any tab.
+      ...EVALUATION_VIEWS.map(({ view, label }) => ({
+        id: `eval-view-${view}`,
+        label: `Evaluation: ${label}`,
+        group: 'Navigate',
+        keywords: 'dashboard',
+        onSelect: () => navigate(view === 'usage' ? '/app/evaluation' : `/app/evaluation?view=${view}`),
       })),
       {
         id: 'switch-document',

@@ -1,11 +1,9 @@
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useMemo } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { Activity, Share2, ShieldCheck, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Page, PageHeader, Panel } from '@/components/ui/page'
 import { EmptyState } from '@/components/ui/empty-state'
-import { useCommands, type CommandPaletteItem } from '@/components/ui/command-palette'
 import { QualitySection } from '@/components/evaluation/QualitySection'
 import { UsageSection } from '@/components/evaluation/UsageSection'
 import { GraphSection } from '@/components/evaluation/GraphSection'
@@ -30,19 +28,6 @@ export function EvaluationPage() {
   const requested = params.get('view')
   const view = VIEWS.find((v) => v.id === requested) ?? VIEWS[0]
   const setView = (id: View) => setParams(id === 'usage' ? {} : { view: id }, { replace: true })
-
-  const commands = useMemo<CommandPaletteItem[]>(
-    () =>
-      VIEWS.map((v) => ({
-        id: `eval-view-${v.id}`,
-        label: `Evaluation: ${v.label}`,
-        group: 'Navigate',
-        icon: <v.icon className="size-4" />,
-        onSelect: () => navigate(v.id === 'usage' ? '/app/evaluation' : `/app/evaluation?view=${v.id}`),
-      })),
-    [navigate],
-  )
-  useCommands('evaluation', commands)
 
   return (
     <Page testId="evaluation-page">

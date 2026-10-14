@@ -62,7 +62,11 @@ export function DocumentSwitcher({ open, onOpenChange }: { open: boolean; onOpen
       toast.success(`Deleted "${pendingDelete.filename}" — ${result.chunks_removed} chunks removed`)
       setDocs((prev) => (prev ?? []).filter((d) => d.id !== pendingDelete.id))
       setTotal((t) => Math.max(0, t - 1))
-      if (pendingDelete.id === documentId) setDocument(null, null)
+      if (pendingDelete.id === documentId) {
+        // The working document is gone: close the list so the upload screen is in front.
+        setDocument(null, null)
+        onOpenChange(false)
+      }
       setPendingDelete(null)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Delete failed')

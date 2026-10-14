@@ -1,10 +1,10 @@
-import { memo, useEffect, useRef } from 'react'
+import { memo } from 'react'
 import type { EdgeProps } from '@xyflow/react'
 import { motion, useReducedMotion } from 'framer-motion'
 import type { EdgeKind } from '@/lib/api/types'
 import { cn } from '@/lib/utils'
 import type { EdgePath } from './layout'
-import { animatePacket, onPacket } from './packets'
+import { PACKET_COLOR } from './packets'
 
 export interface FlowEdgeData extends Record<string, unknown> {
   kind: EdgeKind
@@ -30,31 +30,12 @@ const DASH: Record<EdgeKind, string | undefined> = {
   optional: '6 5',
 }
 
-/** Packet colour by kind of hop. */
-export const PACKET_COLOR: Record<EdgeKind, string> = {
-  request: 'var(--color-accent-soft)',
-  data: 'var(--color-live)',
-  trace: 'var(--color-success)',
-  optional: 'var(--color-warning)',
-}
-
 const ENTRANCE_STEP_S = 0.05
 
 export const FlowEdge = memo(function FlowEdge({ id, data }: EdgeProps) {
   const d = data as FlowEdgeData
-  const layerRef = useRef<SVGGElement>(null)
   const reduced = useReducedMotion()
   const { points } = d.path
-
-  // Always listening: whether a packet may be drawn at all (socket open, motion allowed) is
-  // decided by whoever emits it, in one place.
-  useEffect(
-    () =>
-      onPacket(id, (packet) => {
-        if (layerRef.current) animatePacket(layerRef.current, points, packet, PACKET_COLOR[packet.kind])
-      }),
-    [id, points],
-  )
 
   const end = points[points.length - 1]
   const before = points[points.length - 2]
@@ -71,6 +52,7 @@ export const FlowEdge = memo(function FlowEdge({ id, data }: EdgeProps) {
         // A dashed line cannot be "drawn" by stroke-dashoffset, so it fades in instead.
         <motion.path
           d={d.path.d}
+          data-edge-path="true"
           fill="none"
           stroke="currentColor"
           strokeWidth={d.highlighted ? 2 : 1.25}
@@ -82,6 +64,7 @@ export const FlowEdge = memo(function FlowEdge({ id, data }: EdgeProps) {
       ) : (
         <motion.path
           d={d.path.d}
+          data-edge-path="true"
           fill="none"
           stroke="currentColor"
           strokeWidth={d.highlighted ? 2 : 1.25}
@@ -105,7 +88,8 @@ export const FlowEdge = memo(function FlowEdge({ id, data }: EdgeProps) {
           {d.label}
         </text>
       )}
-      <g ref={layerRef} data-packet-layer={id} />
+      {/* Packets are drawn here; packets.ts finds this layer and the path above by attribute. */}
+      <g data-packet-layer={id} />
     </g>
   )
 })

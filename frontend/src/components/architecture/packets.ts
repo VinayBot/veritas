@@ -1,6 +1,6 @@
 /** Imperative packet animation. A packet is a few SVG circles moved along an edge by the
  * Web Animations API using transform keyframes only — no React state per frame, nothing that
- * triggers layout. Edges subscribe by id; the page emits when a real trace hop arrives. */
+ * triggers layout. The page emits when a real trace hop arrives; the edge is looked up then. */
 import type { EdgeKind } from '@/lib/api/types'
 
 export interface PacketRequest {
@@ -9,29 +9,44 @@ export interface PacketRequest {
   kind: EdgeKind
 }
 
-type Listener = (packet: PacketRequest) => void
-
-const listeners = new Map<string, Set<Listener>>()
 const running = new Set<Animation>()
 let drawn = 0
+
+/** Packet colour by kind of hop. */
+export const PACKET_COLOR: Record<EdgeKind, string> = {
+  request: 'var(--color-accent-soft)',
+  data: 'var(--color-live)',
+  trace: 'var(--color-success)',
+  optional: 'var(--color-warning)',
+}
 
 /** How many packets have actually been drawn since the page loaded. */
 export function packetsDrawn(): number {
   return drawn
 }
 
-export function onPacket(edgeId: string, listener: Listener): () => void {
-  const set = listeners.get(edgeId) ?? new Set()
-  set.add(listener)
-  listeners.set(edgeId, set)
-  return () => {
-    set.delete(listener)
-    if (set.size === 0) listeners.delete(edgeId)
-  }
-}
+const SAMPLES = 24
 
-export function emitPacket(edgeId: string, packet: PacketRequest): void {
-  listeners.get(edgeId)?.forEach((listener) => listener(packet))
+/**
+ * Draws a packet along an edge, if that edge is on screen. Returns whether it was drawn.
+ *
+ * The edge is found in the document at the moment of the call, and its route is measured
+ * off the path that is actually drawn. Nothing is registered ahead of time: a subscription
+ * kept by each edge component could be torn down and re-created by a re-render or a remount
+ * of the canvas, and a packet for a real event emitted in that gap was silently lost.
+ */
+export function emitPacket(edgeId: string, packet: PacketRequest): boolean {
+  const layer = document.querySelector<SVGGElement>(`[data-packet-layer="${CSS.escape(edgeId)}"]`)
+  const path = layer?.parentElement?.querySelector<SVGPathElement>('path[data-edge-path]')
+  if (!layer || !path) return false
+  const length = path.getTotalLength()
+  if (!(length > 0)) return false
+  const points = Array.from({ length: SAMPLES + 1 }, (_, i) => {
+    const point = path.getPointAtLength((length * i) / SAMPLES)
+    return { x: point.x, y: point.y }
+  })
+  animatePacket(layer, points, packet, PACKET_COLOR[packet.kind])
+  return true
 }
 
 /** Stops every packet in flight — used the moment the trace socket closes. */
