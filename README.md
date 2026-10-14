@@ -12,6 +12,9 @@ Veritas writes questions with known answers from that document, runs several ret
 strategies on them, scores every answer, and answers that document with the measured winner.
 You can compare any strategy against it, question by question, with the scores side by side.
 
+**Reviewing the assignment?** [ASSIGNMENT_REPORT.md](ASSIGNMENT_REPORT.md) maps every Week 3 topic
+to what was built, where it is, and the measured evidence.
+
 ## Measured results
 
 From `make eval` on the bundled HR handbook ([docs/BENCHMARKS.md](docs/BENCHMARKS.md); 10
