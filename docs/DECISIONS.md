@@ -1464,3 +1464,22 @@ and no relations. `llama3.2:3b` did return relations, but its JSON list was cut 
 token limit partway through the last item (or wrote an item as `[ ]`), and the parser
 rejected the whole reply. It now keeps every complete triple; a rebuild of the sample gave
 relations again and the graph test passes.
+
+
+## Compare opens what was measured; slow winners are recommended, not switched to
+
+The owner uploaded a paper, clicked Compare while the automatic measurement was still
+running, and waited: the dialog re-ran Hybrid + Rerank and Hybrid on the same questions (73 s),
+and a second comparison with GraphRAG and Agentic sat at "Waiting for another job to finish"
+behind it (82 s more). The measurement itself yielded to both and finished last. And because
+a comparison counts as measurement, Agentic (0.62 on three questions) silently became that
+document's chat strategy — the slowest one.
+
+- "Compare for details" now opens the comparison behind the card directly (5 ms instead of a
+  re-run). "Add a strategy or change questions" keeps its strategies and question set
+  picked, so ticking Agentic runs only Agentic; the others are cached.
+- Reopening the dialog follows a comparison for the document that is still running instead
+  of queueing a second one, and a queued job names what it waits for.
+- Automatic selection takes the best *direct* strategy. An agent strategy that measures
+  best is shown as the recommendation with a reason, and the user switches with one click.
+

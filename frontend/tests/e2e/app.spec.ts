@@ -123,9 +123,12 @@ test('after upload the best strategy is measured, shown with its score, and used
   const answer = await ask(page, 'How much is the home office stipend?')
   await expect(answer.getByTestId('answer-meta')).toContainText(`Answered with: ${best.display_name}`)
 
-  // Compare is there for a closer look, with the measured strategies preselected.
+  // Compare opens the measured comparison at once, without running it again; adding a
+  // strategy keeps the measured ones picked.
   await card.getByTestId('compare-recommended').click()
-  await expect(page.getByTestId('compare-dialog')).toBeVisible()
+  const dialog = page.getByTestId('compare-dialog')
+  await expect(dialog.getByTestId('comparison-view')).toBeVisible({ timeout: 5_000 })
+  await dialog.getByTestId('compare-more').click()
   await expect(page.getByTestId(`compare-pick-${rec.measured.ranking[1].strategy}`)).toBeChecked()
   await page.keyboard.press('Escape')
 })
@@ -179,9 +182,13 @@ test('a comparison runs to a measured result in under two minutes, with progress
   await page.getByTestId('compare-recommended').click()
   const dialog = page.getByTestId('compare-dialog')
   await expect(dialog).toBeVisible()
-  // From the card it opens on the question set the recommendation was measured on.
+  // From the card it opens the measured result when there is one, else the question set the
+  // recommendation will be measured on.
+  const oneQuestion = dialog.getByRole('radio', { name: 'One question' })
+  await expect(dialog.getByTestId('comparison-view').or(oneQuestion)).toBeVisible()
+  if (await dialog.getByTestId('compare-more').isVisible()) await dialog.getByTestId('compare-more').click()
   await expect(dialog.getByRole('radio', { name: /A set of questions/ })).toHaveAttribute('aria-checked', 'true')
-  await dialog.getByRole('radio', { name: 'One question' }).click()
+  await oneQuestion.click()
   await dialog.getByLabel('Question to compare on').fill('How much is the home office stipend?')
   const available = dialog.locator('input[type="checkbox"]:not([disabled])')
   if (!(await available.first().isChecked())) await available.first().check()

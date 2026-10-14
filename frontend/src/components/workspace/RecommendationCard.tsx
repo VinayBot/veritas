@@ -29,7 +29,8 @@ export function RecommendationCard({
   /** The recommendation is re-read when background graph building finishes. */
   enrichmentStatus: string | null
   onApplied: () => void
-  onCompare: (strategies: string[]) => void
+  /** `comparisonId`: the measured comparison behind the card, opened as it is. */
+  onCompare: (strategies: string[], comparisonId?: string) => void
   nameOf?: (id: string) => string
 }) {
   const [rec, setRec] = useState<Recommendation | null>(null)
@@ -255,7 +256,12 @@ export function RecommendationCard({
         <Button
           size="sm"
           variant="outline"
-          onClick={() => onCompare(others.length > 0 ? [rec.recommended, ...others].slice(0, 3) : [rec.recommended])}
+          onClick={() =>
+            onCompare(
+              others.length > 0 ? [rec.recommended, ...others].slice(0, 3) : [rec.recommended],
+              rec.measured?.source === 'comparison' ? rec.measured.run_id : undefined,
+            )
+          }
           data-testid="compare-recommended"
           title="See every strategy's answers and scores side by side, question by question."
         >

@@ -123,7 +123,7 @@ export function WorkspacePage() {
   const [sendStartedAt, setSendStartedAt] = useState<number | null>(null)
   const [hoveredChunk, setHoveredChunk] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [compare, setCompare] = useState<{ query?: string; selected?: string[] } | null>(null)
+  const [compare, setCompare] = useState<{ query?: string; selected?: string[]; comparisonId?: string } | null>(null)
   const [report, setReport] = useState<ReportResponse | null>(null)
   const [reportError, setReportError] = useState<unknown>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -716,7 +716,7 @@ export function WorkspacePage() {
             }}
             // The recommendation rests on the document's question set; comparing on that same set
             // checks it, where a single question can easily disagree.
-            onCompare={(selected) => setCompare({ selected })}
+            onCompare={(selected, comparisonId) => setCompare({ selected, comparisonId })}
           />
         )}
         {reportError ? (
@@ -761,6 +761,7 @@ export function WorkspacePage() {
           defaultStrategy={strategies.data.default}
           initialQuery={compare.query}
           initialSelected={compare.selected}
+          initialComparisonId={compare.comparisonId}
           onAdopted={() => {
             store.setStrategyOverride(null)
             strategies.refresh()

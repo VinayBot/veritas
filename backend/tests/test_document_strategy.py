@@ -176,3 +176,18 @@ async def test_a_requested_measurement_does_not_wait_behind_automatic_ones(monke
     assert statuses == ["queued", "running"]
     release.set()
     await holder
+
+
+def test_automatic_choice_skips_the_slow_agent_strategies():
+    from app.rag_engines.document_strategy import automatic_choice
+
+    measured = {
+        "ranking": [
+            {"strategy": "agentic", "score": 0.62},
+            {"strategy": "graph_rag", "score": 0.53},
+            {"strategy": "hybrid_rerank", "score": 0.46},
+        ]
+    }
+    assert automatic_choice(measured) == "graph_rag"
+    assert automatic_choice({"ranking": [{"strategy": "council", "score": 0.9}]}) is None
+    assert automatic_choice(None) is None

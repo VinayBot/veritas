@@ -157,6 +157,21 @@ async def list_jobs(
         return list((await session.execute(query)).scalars().all())
 
 
+# The kind of the job holding the gate, so one that waits can say what it waits for.
+_running: dict[str, str | None] = {}
+
+_JOB_NAMES = {
+    "comparison": "the comparison already running",
+    "benchmark": "the evaluation already running",
+    "prepare_strategy": "a strategy being prepared (index or graph build)",
+    "measure": "the strategy measurement already running",
+}
+
+
+def _describe(kind: str | None) -> str:
+    return _JOB_NAMES.get(kind or "", "another job")
+
+
 async def _run(job_id: str, work: Callable[[JobContext], Awaitable[dict[str, Any] | None]]) -> None:
     from app.llm import client as llm_client
 
@@ -165,12 +180,13 @@ async def _run(job_id: str, work: Callable[[JobContext], Awaitable[dict[str, Any
     ctx = JobContext(job_id)
     try:
         if _gate().locked():
-            await ctx.emit(
-                "progress", {"progress": 0.0, "message": "Waiting for another job to finish"}
-            )
-            await _update(job_id, message="Waiting for another job to finish")
+            message = f"Waiting for {_describe(_running.get('kind'))} to finish"
+            await ctx.emit("progress", {"progress": 0.0, "message": message})
+            await _update(job_id, message=message)
         async with _gate():
             ctx.checkpoint()
+            job = await get_job(job_id)
+            _running.update(id=job_id, kind=job.kind if job else None)
             await _update(job_id, status="running", message="Starting")
             await ctx.emit("status", {"status": "running"})
             async with llm_client.foreground_job():
@@ -186,6 +202,8 @@ async def _run(job_id: str, work: Callable[[JobContext], Awaitable[dict[str, Any
         await _update(job_id, status="failed", error=message, message="Failed")
         await ctx.emit("error", {"message": message})
     finally:
+        if _running.get("id") == job_id:
+            _running.clear()
         _cancel_requested.discard(job_id)
         _tasks.pop(job_id, None)
 

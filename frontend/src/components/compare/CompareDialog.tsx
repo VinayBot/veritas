@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { ComparisonView } from './ComparisonView'
 import { useJob } from '@/hooks/useJob'
 import { AnalystBot } from '@/components/robot/analyst-bot'
-import { announceMeasured, estimateComparison, generateDataset, getComparison, listDatasets, startComparison, type CompareParams } from '@/lib/api/client'
+import { announceMeasured, estimateComparison, generateDataset, getComparison, listDatasets, listJobs, startComparison, type CompareParams } from '@/lib/api/client'
 import type { CompareEstimate, ComparisonResult, EvalDataset, Strategy } from '@/lib/api/types'
 import { cn } from '@/lib/utils'
 
@@ -32,6 +32,7 @@ export function CompareDialog({
   defaultStrategy,
   initialQuery,
   initialSelected,
+  initialComparisonId,
   onAdopted,
 }: {
   open: boolean
@@ -41,6 +42,8 @@ export function CompareDialog({
   defaultStrategy: string
   initialQuery?: string
   initialSelected?: string[]
+  /** A comparison already measured for this document: shown at once instead of running again. */
+  initialComparisonId?: string
   onAdopted?: (strategy: string) => void
 }) {
   const [source, setSource] = useState<'query' | 'dataset'>(initialQuery ? 'query' : 'dataset')
@@ -65,14 +68,47 @@ export function CompareDialog({
     setQuery(initialQuery ?? '')
     setSource(initialQuery ? 'query' : 'dataset')
     setSelected(initialSelected ?? strategies.filter((s) => s.available && s.id !== defaultStrategy).slice(0, 1).map((s) => s.id))
+    let cancelled = false
+    if (initialComparisonId) {
+      getComparison(initialComparisonId)
+        .then((c) => !cancelled && setResult(c.result))
+        .catch(() => undefined) // falls back to the form
+    }
+    // A comparison for this document still running (the dialog was closed meanwhile): follow
+    // it instead of starting a second one that would only queue behind it.
+    listJobs('comparison')
+      .then(({ jobs }) => {
+        const running = jobs.find((j) => j.params.document_id === documentId)
+        if (running && !cancelled) {
+          setJobId(running.id)
+          setStartedAt(Date.parse(running.created_at.endsWith('Z') ? running.created_at : `${running.created_at}Z`))
+        }
+      })
+      .catch(() => undefined)
     listDatasets(documentId)
       .then((data) => {
         setDatasets(data.datasets)
         setDatasetId(data.datasets[0]?.id ?? null)
       })
       .catch(() => setDatasets([]))
+    return () => {
+      cancelled = true
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset once per opening
   }, [open, documentId])
+
+  // From a result to the form: the same questions and strategies stay picked, so adding one
+  // more runs only that one — the rest come from the cache.
+  function compareMore() {
+    if (result) {
+      setSelected(result.strategies.map((s) => s.name).filter((name) => name !== defaultStrategy))
+      if (result.dataset?.id) {
+        setSource('dataset')
+        setDatasetId(result.dataset.id)
+      }
+    }
+    setResult(null)
+  }
 
   const params: CompareParams | null = useMemo(() => {
     if (selected.length === 0) return null
@@ -147,7 +183,7 @@ export function CompareDialog({
           <>
             <ComparisonView result={result} names={names} onAdopted={onAdopted} />
             <div className="flex justify-end">
-              <Button variant="outline" size="sm" onClick={() => setResult(null)}>Compare something else</Button>
+              <Button variant="outline" size="sm" onClick={compareMore} data-testid="compare-more">Add a strategy or change questions</Button>
             </div>
           </>
         ) : job.active || preparing ? (

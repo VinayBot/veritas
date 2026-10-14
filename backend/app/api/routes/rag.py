@@ -277,10 +277,20 @@ async def recommendation(document_id: str) -> dict:
             ranking[0]["score"], ranking[1]["score"] if len(ranking) > 1 else 0.0
         )
     recommended = payload["recommended"]
-    if basis == "measured" and document.preferred_strategy is None:
-        # Measured before automatic selection existed (or by a comparison the user ran):
-        # the document adopts its measured best, exactly as a new upload would.
-        await document_strategy.adopt_measured(document_id, recommended)
+    choice = document_strategy.automatic_choice(measured) if basis == "measured" else None
+    if choice is not None and document.strategy_source != "chosen":
+        # Measured before automatic selection existed, or by a comparison the user ran: the
+        # document adopts its best direct strategy, exactly as a new upload would — and
+        # leaves a slower agent strategy it had adopted that way.
+        if document.preferred_strategy != choice:
+            await document_strategy.adopt_measured(document_id, choice)
+    if choice is not None and choice != recommended:
+        payload["reasons"] = [
+            *payload.get("reasons", []),
+            f"{get_strategy(recommended).display_name} answers several times slower (it "
+            "plans, checks and revises), so chat stays on "
+            f"{get_strategy(choice).display_name} until you choose it.",
+        ]
     effective, effective_source = await document_strategy.effective_strategy(document_id)
     llm = await availability.llm_state()
     state = await availability.check(get_strategy(recommended), document, llm)

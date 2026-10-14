@@ -94,6 +94,20 @@ async def _update(document_id: str, **fields: Any) -> None:
         await session.commit()
 
 
+def automatic_choice(measured: dict[str, Any] | None) -> str | None:
+    """The strategy a document switches to by itself: the best measured one that answers
+    directly. The agent and the council take 15-40 s per answer on this hardware against
+    4-7 s, so when one of them measures best it is recommended, and the user switches to it
+    with one click, but chat does not silently become several times slower."""
+    if not measured:
+        return None
+    for entry in measured.get("ranking", []):
+        strategy = entry.get("strategy")
+        if strategy in STRATEGIES and get_strategy(strategy).kind != "agentic":
+            return strategy
+    return None
+
+
 async def adopt_measured(document_id: str, strategy: str) -> None:
     """The measured best becomes the document's strategy unless the user chose one."""
     async with session_scope() as session:
@@ -172,8 +186,9 @@ async def auto_measure(document_id: str, *, requested: bool = False) -> dict[str
                 doc = await session.get(Document, document_id)
                 if doc is None:
                     return measured
-                if measured is not None and doc.strategy_source != "chosen":
-                    doc.preferred_strategy = measured["winner"]
+                choice = automatic_choice(measured)
+                if choice is not None and doc.strategy_source != "chosen":
+                    doc.preferred_strategy = choice
                     doc.strategy_source = "measured"
                 doc.measure_status = "done"
                 await session.commit()
