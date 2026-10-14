@@ -5,6 +5,7 @@ Phase 6 agentic `graph_traverse` tool.
 
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import Awaitable, Callable
 
@@ -14,11 +15,19 @@ from app.graphrag.resolver import normalize_name, resolve_entities
 from app.stores.graph.base import GraphNode
 from app.stores.graph.networkx_store import get_graph_store
 
-# Relations are read by a model, one call per chunk, so only the chunks richest in entities
-# are sent, and the whole pass stops at a time budget. Entities come from fast local NER and
-# always cover every chunk.
-MAX_TRIPLE_CHUNKS = 8
-TRIPLE_TIME_BUDGET_SECONDS = 150.0
+# Typed relations are read by a model, one call per chunk, so only the chunks richest in
+# entities are sent, and the whole pass stops at a time budget. Entities come from fast local
+# NER and always cover every chunk, and so do co-occurrence relations (below).
+MAX_TRIPLE_CHUNKS = 20
+TRIPLE_TIME_BUDGET_SECONDS = 240.0
+
+# Two named entities in the same sentence are related, even when the model reads nothing
+# more specific: every chunk gets these, so a long document's graph is not limited to the
+# chunks the model had time to read. Capped per sentence so a list of names does not become
+# a clique.
+CO_OCCURRENCE_PREDICATE = "mentioned with"
+MAX_ENTITIES_PER_SENTENCE = 6
+_SENTENCE_RE = re.compile(r"[^.!?\n]+(?:[.!?]+|$)")
 
 # Numbers, amounts and dates are not things a document is "about": as graph nodes they become
 # hubs like "annually" or "1" that link unrelated passages and match any query containing a
@@ -58,6 +67,36 @@ def _node_for(store, doc_id: str, name: str, mention_to_id: dict[str, str]) -> s
     return node_id
 
 
+def _add_co_occurrences(
+    store, doc_id: str, chunk: Chunk, entities: list, mention_to_id: dict
+) -> int:  # noqa: ANN001
+    added = 0
+    seen: set[tuple[str, str]] = set()
+    for sentence in _SENTENCE_RE.finditer(chunk.text):
+        ids: list[str] = []
+        for ent in entities:
+            if sentence.start() <= ent.start and ent.end <= sentence.end():
+                node = mention_to_id.get(normalize_name(ent.text))
+                if node and node not in ids:
+                    ids.append(node)
+        ids = ids[:MAX_ENTITIES_PER_SENTENCE]
+        for i, a in enumerate(ids):
+            for b in ids[i + 1 :]:
+                pair = (min(a, b), max(a, b))
+                if pair in seen:
+                    continue
+                seen.add(pair)
+                store.add_relation(
+                    pair[0],
+                    pair[1],
+                    CO_OCCURRENCE_PREDICATE,
+                    doc_id=doc_id,
+                    chunk_id=chunk.chunk_id,
+                )
+                added += 1
+    return added
+
+
 GraphProgress = Callable[[float, str], Awaitable[None]]
 
 
@@ -71,6 +110,7 @@ async def build_graph_for_document(
     store.remove_doc_edges(doc_id)  # a rebuild replaces this document's relations
     total_entities = 0
     total_triples = 0
+    total_co = 0
     named: dict[str, dict[str, str]] = {}
 
     for chunk in chunks:
@@ -85,6 +125,7 @@ async def build_graph_for_document(
                 mention_to_id[normalize_name(mention)] = r.id
             total_entities += 1
         named[chunk.chunk_id] = mention_to_id
+        total_co += _add_co_occurrences(store, doc_id, chunk, entities, mention_to_id)
     # Every chunk with real text is a candidate for relation reading, richest in named
     # entities first: a technical document has few named entities but plenty of relations
     # between its concepts.
@@ -133,6 +174,7 @@ async def build_graph_for_document(
         "named_entities": total_entities,
         "concepts": len(concepts),
         "triples": total_triples,
+        "co_occurrences": total_co,
         "communities": len(set(communities.values())),
         "chunks": len(chunks),
         "chunks_read_for_relations": read,
