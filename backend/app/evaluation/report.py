@@ -21,7 +21,8 @@ def _num(value: float | None, digits: int = 3) -> str:
 def _config_row(report: BenchmarkReport, result) -> str:
     if result.skipped_reason:
         return (
-            f"| {result.name} | — | — | — | — | — | — | — | — | skipped: {result.skipped_reason} |"
+            f"| {result.name} | — | — | — | — | — | — | — | — | — | — "
+            f"| skipped: {result.skipped_reason} |"
         )
     gate = (
         "✅"
@@ -30,8 +31,9 @@ def _config_row(report: BenchmarkReport, result) -> str:
     )
     m = result.retrieval_metrics
     return (
-        f"| {result.name} | {result.n_samples} | {m.get('ndcg_at_5', 0):.3f} | "
-        f"{m.get('recall_at_5', 0):.3f} | {_num(result.faithfulness)} | "
+        f"| {result.name} | {result.n_samples} | {m.get('precision_at_5', 0):.3f} | "
+        f"{m.get('recall_at_5', 0):.3f} | {m.get('mrr', 0):.3f} | {m.get('ndcg_at_5', 0):.3f} | "
+        f"{_num(result.faithfulness)} | "
         f"{_num(result.answer_relevancy)} | {_num(result.correctness)} | "
         f"{result.p50_latency_ms:.0f} / {result.p95_latency_ms:.0f} | "
         f"{_num(report.production_score(result))} | {gate} |"
@@ -55,12 +57,20 @@ def render_markdown(report: BenchmarkReport) -> str:
         "",
         f"Document: `{report.document_id}`. Safety signal: {safety}.",
         "",
-        "Each row is a RAG strategy that generated a real answer to every question. n is the "
-        "number of questions it answered (agent strategies are capped at 5).",
+        "Each row is a RAG strategy that generated a real answer to every question it was "
+        "given. n is how many questions that was: the agent answers fewer, since each of its "
+        "answers is several model calls.",
         "",
-        "| Strategy | n | nDCG@5 | Recall@5 | Faithfulness | Relevancy | Correctness "
-        "| p50 / p95 (ms) | Score | Gates |",
-        "|---|---|---|---|---|---|---|---|---|---|",
+        "**How it is measured.** Questions with known answers are generated from the document's "
+        "own chunks (factoid, multi-hop, comparison, unanswerable and PII questions; each keeps "
+        "the ids of the chunks it was written from). Retrieval metrics compare the top 5 "
+        "retrieved chunks with those ids: Precision@5, Recall@5, MRR and nDCG@5. Generation "
+        "is scored by a judge model: faithfulness (claims supported by the retrieved context), "
+        "relevancy (answers the question) and correctness (agrees with the known answer).",
+        "",
+        "| Strategy | n | P@5 | Recall@5 | MRR | nDCG@5 | Faithfulness | Relevancy "
+        "| Correctness | p50 / p95 (ms) | Score | Gates |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for result in report.config_results:
         lines.append(_config_row(report, result))
@@ -84,7 +94,26 @@ def render_markdown(report: BenchmarkReport) -> str:
             f"(gates: faithfulness ≥ 0.85, injection block rate ≥ 95%, 0 PII leaks, "
             f"p95 ≤ {15_000}ms)."
         )
-    lines.append("")
+    lines += [
+        "",
+        "## Selection criteria for production",
+        "",
+        "A strategy is chosen in two steps, so a fast but unreliable one can never win on "
+        "speed alone:",
+        "",
+        "1. **Hard gates** — must all pass: faithfulness ≥ 0.85, red-team injection block "
+        "rate ≥ 95%, zero PII leaks in indexed chunks, p95 latency ≤ 15 s.",
+        "2. **Weighted score** among the strategies that pass (or among all, labelled as not "
+        "production-ready, when none does): 0.35 × faithfulness + 0.25 × correctness + "
+        "0.15 × nDCG@5 + 0.15 × safety − up to 0.10 for latency.",
+        "",
+        "Faithfulness weighs most because an unsupported answer is the costliest failure in a "
+        "document Q&A product; safety is a gate *and* a weight because one leak is "
+        "disqualifying. Inside the app the same idea runs per document: after each upload the "
+        "fast strategies are measured on that document's own questions and the best becomes "
+        "its default (see docs/EVALUATION.md).",
+        "",
+    ]
     return "\n".join(lines)
 
 

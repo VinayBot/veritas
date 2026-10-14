@@ -28,6 +28,14 @@ class Neo4jGraphStore:
     def close(self) -> None:
         self._driver.close()
 
+    def save(self) -> None:
+        """Every write is already committed in its own transaction; nothing to flush. Present
+        so callers can treat both stores alike."""
+
+    def clear(self) -> None:
+        with self._driver.session() as session:
+            session.run("MATCH (n:Entity) DETACH DELETE n")
+
     def upsert_entity(
         self, node_id: str, label: str, name: str, doc_id: str, mentions: list[str]
     ) -> None:
@@ -67,7 +75,9 @@ class Neo4jGraphStore:
         with self._driver.session() as session:
             session.run(
                 "MATCH (s:Entity {id: $source_id}), (t:Entity {id: $target_id}) "
-                "MERGE (s)-[r:RELATES {predicate: $predicate, doc_id: $doc_id, "
+                # CREATE, like the NetworkX MultiDiGraph: each reading of a relation is its
+                # own edge (MERGE on a pattern with a null chunk_id is also an error).
+                "CREATE (s)-[r:RELATES {predicate: $predicate, doc_id: $doc_id, "
                 "chunk_id: $chunk_id}]->(t)",
                 source_id=source_id,
                 target_id=target_id,
@@ -79,16 +89,21 @@ class Neo4jGraphStore:
     def find_entities_by_name(
         self, query_text: str, limit: int = 5, doc_id: str | None = None
     ) -> list[GraphNode]:
+        """Same linking as the NetworkX store: the candidate names (this document's, when
+        `doc_id` is given) are read once, and the shared fuzzy matcher picks those that appear
+        in the question."""
+        from app.stores.graph.networkx_store import match_names
+
         with self._driver.session() as session:
-            result = session.run(
-                "MATCH (n:Entity) WHERE toLower(n.name) CONTAINS toLower($q) "
-                "AND ($doc IS NULL OR $doc IN n.doc_ids) RETURN n LIMIT $limit",
-                doc=doc_id,
-                q=query_text,
-                limit=limit,
+            records = list(
+                session.run(
+                    "MATCH (n:Entity) WHERE $doc IS NULL OR $doc IN n.doc_ids RETURN n",
+                    doc=doc_id,
+                )
             )
-            records = list(result)
-        return [self._to_node(r["n"]) for r in records]
+        by_id = {r["n"]["id"]: r["n"] for r in records}
+        names = {node_id: str(data.get("name", node_id)) for node_id, data in by_id.items()}
+        return [self._to_node(by_id[node_id]) for node_id in match_names(query_text, names, limit)]
 
     def _to_node(self, data: Any) -> GraphNode:
         return GraphNode(
@@ -121,7 +136,14 @@ class Neo4jGraphStore:
             )
             for r in records
         ]
-        nodes = sorted({e.source for e in edges} | {e.target for e in edges} | set(start_ids))
+        with self._driver.session() as session:
+            existing = {
+                r["id"]
+                for r in session.run(
+                    "MATCH (n:Entity) WHERE n.id IN $ids RETURN n.id AS id", ids=start_ids
+                )
+            }
+        nodes = sorted({e.source for e in edges} | {e.target for e in edges} | existing)
         return TraversalPath(nodes=nodes, edges=edges)
 
     def detect_communities(self) -> dict[str, int]:
@@ -179,6 +201,28 @@ class Neo4jGraphStore:
                     "RETURN s.id AS source, t.id AS target, r.predicate AS predicate, "
                     "       r.doc_id AS doc_id, r.chunk_id AS chunk_id"
                 )
-                if r["source"] in node_ids and r["target"] in node_ids
+                if r["source"] in node_ids
+                and r["target"] in node_ids
+                # As in the NetworkX store: a relation read from another document is not part
+                # of this document's graph, even between two of its entities.
+                and (doc_id is None or r["doc_id"] in (None, doc_id))
             ]
         return {"nodes": nodes, "edges": edges}
+
+    def remove_doc_edges(self, doc_id: str) -> int:
+        with self._driver.session() as session:
+            record = session.run(
+                "MATCH ()-[r:RELATES {doc_id: $doc_id}]->() DELETE r RETURN count(r) AS n",
+                doc_id=doc_id,
+            ).single()
+        return int(record["n"]) if record else 0
+
+    def node_count(self) -> int:
+        with self._driver.session() as session:
+            record = session.run("MATCH (n:Entity) RETURN count(n) AS n").single()
+        return int(record["n"]) if record else 0
+
+    def edge_count(self) -> int:
+        with self._driver.session() as session:
+            record = session.run("MATCH ()-[r:RELATES]->() RETURN count(r) AS n").single()
+        return int(record["n"]) if record else 0

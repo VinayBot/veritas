@@ -120,6 +120,8 @@ async def run_and_save_benchmark(
     write_doc: bool = False,
     progress: Progress = _noop_progress,
     checkpoint: Checkpoint | None = None,
+    max_questions: int | None = None,
+    max_agent_questions: int | None = None,
 ) -> tuple[BenchmarkRun, BenchmarkReport]:
     """`write_doc` rewrites docs/BENCHMARKS.md from this run. Only `make eval` asks for that;
     a run started from the UI never touches a tracked file."""
@@ -134,6 +136,8 @@ async def run_and_save_benchmark(
         include_safety=include_safety,
         progress=progress,
         checkpoint=checkpoint,
+        max_questions=max_questions,
+        max_agent_questions=max_agent_questions,
     )
     if write_doc:
         write_benchmarks_doc(report)

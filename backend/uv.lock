@@ -4142,6 +4142,7 @@ scrape = [
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
+    { name = "neo4j" },
     { name = "pre-commit" },
     { name = "pypdf" },
     { name = "pytest" },
@@ -4194,6 +4195,7 @@ provides-extras = ["redis", "qdrant", "neo4j", "scrape"]
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = ">=1.11" },
+    { name = "neo4j", specifier = ">=5.24" },
     { name = "pre-commit", specifier = ">=3.8" },
     { name = "pypdf", specifier = ">=6.20.0" },
     { name = "pytest", specifier = ">=8.0" },

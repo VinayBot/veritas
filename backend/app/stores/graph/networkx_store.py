@@ -21,6 +21,30 @@ MIN_LINKABLE_NAME_LENGTH = 4
 LINK_SCORE_CUTOFF = 80
 
 
+def match_names(query_text: str, names: dict[str, str], limit: int) -> list[str]:
+    """Ids of the entities whose name appears in, or closely resembles part of, the text.
+    Shared by both graph stores so they link a question to the same entities."""
+    from rapidfuzz import fuzz, process
+
+    # A one- or two-character name ("1", "US") partially matches almost any query, and a
+    # three-letter one ("one") matches inside ordinary words.
+    candidates = {
+        node_id: name.lower()
+        for node_id, name in names.items()
+        if len(name.strip()) >= MIN_LINKABLE_NAME_LENGTH
+    }
+    if not candidates:
+        return []
+    matches = process.extract(
+        query_text.lower(),
+        candidates,
+        scorer=fuzz.partial_ratio,
+        limit=limit,
+        score_cutoff=LINK_SCORE_CUTOFF,
+    )
+    return [node_id for _, _score, node_id in matches]
+
+
 class NetworkXGraphStore:
     def __init__(self, path: Path | None = None) -> None:
         self._path = path or (get_settings().data_dir / "graph.pickle")
@@ -83,8 +107,6 @@ class NetworkXGraphStore:
         """Entities whose name appears in, or closely resembles part of, the text. With
         `doc_id`, only that document's entities are considered: the graph spans every
         document, and a question about one must not link to another's entities."""
-        from rapidfuzz import fuzz, process
-
         if self._graph.number_of_nodes() == 0:
             return []
         # A one- or two-character name ("1", "US") partially matches almost any query, and
@@ -93,19 +115,8 @@ class NetworkXGraphStore:
         for node_id, data in self._graph.nodes(data=True):
             if doc_id is not None and doc_id not in data.get("doc_ids", []):
                 continue
-            name = str(data.get("name", node_id))
-            if len(name.strip()) >= MIN_LINKABLE_NAME_LENGTH:
-                names[node_id] = name.lower()
-        if not names:
-            return []
-        matches = process.extract(
-            query_text.lower(),
-            names,
-            scorer=fuzz.partial_ratio,
-            limit=limit,
-            score_cutoff=LINK_SCORE_CUTOFF,
-        )
-        return [self._to_node(node_id) for _, _score, node_id in matches]
+            names[node_id] = str(data.get("name", node_id))
+        return [self._to_node(node_id) for node_id in match_names(query_text, names, limit)]
 
     def _to_node(self, node_id: str) -> GraphNode:
         data = self._graph.nodes[node_id]
@@ -218,5 +229,11 @@ class NetworkXGraphStore:
 
 
 @lru_cache(maxsize=1)
-def get_graph_store() -> NetworkXGraphStore:
+def get_graph_store() -> Any:
+    """The knowledge-graph store chosen by GRAPH_STORE: "networkx" (default, a file on disk)
+    or "neo4j" (NEO4J_URI; `docker compose --profile neo4j up`). Both implement GraphStore."""
+    if get_settings().graph_store == "neo4j":
+        from app.stores.graph.neo4j_store import Neo4jGraphStore
+
+        return Neo4jGraphStore()
     return NetworkXGraphStore()

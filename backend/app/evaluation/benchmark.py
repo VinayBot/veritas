@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -47,6 +48,18 @@ MAX_AGENT_SAMPLES = 3
 # in a minute or two on a laptop. Results always carry the n they rest on.
 MAX_EVAL_QUESTIONS = 5
 HARNESS_VERSION = 2
+
+# `make eval` publishes docs/BENCHMARKS.md and can afford a larger sample than an
+# interactive run; it raises these caps for its own run only.
+_question_caps: ContextVar[tuple[int, int]] = ContextVar(
+    "question_caps", default=(MAX_EVAL_QUESTIONS, MAX_AGENT_SAMPLES)
+)
+
+
+def question_cap(kind: str) -> int:
+    direct, agent = _question_caps.get()
+    return agent if kind == "agentic" else direct
+
 
 RELEVANCE_OVERLAP_THRESHOLD = 0.3
 
@@ -231,7 +244,7 @@ async def evaluate_strategy(
     """Runs one strategy over the question set and scores it. The strategy must be runnable
     for this document (index variant built, graph present) — `run_benchmark` sees to that."""
     spec = get_strategy(strategy_id)
-    limit = MAX_AGENT_SAMPLES if spec.kind == "agentic" else MAX_EVAL_QUESTIONS
+    limit = question_cap(spec.kind)
     sample = pick_questions(eval_items, limit)
     truth = await _truth_texts({cid for item in sample for cid in item.source_chunk_ids})
 
@@ -400,10 +413,7 @@ async def run_strategies(
     llm = await availability.llm_state()
 
     total_samples = sum(
-        min(len(eval_items), MAX_AGENT_SAMPLES)
-        if get_strategy(s).kind == "agentic"
-        else min(len(eval_items), MAX_EVAL_QUESTIONS)
-        for s in strategy_ids
+        min(len(eval_items), question_cap(get_strategy(s).kind)) for s in strategy_ids
     )
     done = 0
     gate = asyncio.Semaphore(strategy_concurrency())
@@ -455,8 +465,17 @@ async def run_benchmark(
     include_safety: bool = True,
     progress: Progress = _noop_progress,
     checkpoint: Checkpoint | None = None,
+    max_questions: int | None = None,
+    max_agent_questions: int | None = None,
 ) -> BenchmarkReport:
+    """`max_questions` / `max_agent_questions` raise the per-strategy question caps for this
+    run (the published benchmark); interactive runs keep the defaults."""
     from app.guardrails.redteam.runner import run_redteam_suite
+
+    if max_questions is not None or max_agent_questions is not None:
+        _question_caps.set(
+            (max_questions or MAX_EVAL_QUESTIONS, max_agent_questions or MAX_AGENT_SAMPLES)
+        )
 
     strategy_ids = list(configs or DEFAULT_STRATEGIES)
     for strategy_id in strategy_ids:

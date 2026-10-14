@@ -19,6 +19,20 @@ from app.evaluation.benchmark import BenchmarkReport  # noqa: E402
 from app.evaluation.service import run_and_save_benchmark  # noqa: E402
 from app.ingestion.service import get_document, ingest_upload  # noqa: E402
 
+# The published benchmark: every retrieval approach the app offers that needs no second model
+# (the council is opt-in and loads three), on a larger sample than an interactive run.
+PUBLISHED_STRATEGIES = (
+    "naive",
+    "hybrid",
+    "hybrid_rerank",
+    "hyde",
+    "semantic_chunk",
+    "graph_rag",
+    "agentic",
+)
+PUBLISHED_QUESTIONS = 12
+PUBLISHED_AGENT_QUESTIONS = 6
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_DEMO_DOC = _REPO_ROOT / "data" / "demo" / "hr_handbook.md"
 
@@ -88,9 +102,18 @@ async def main() -> int:
         await _wait_until_ready(document_id)
         print("Ingestion ready.")
 
-    print("Running benchmark (eval set + every default strategy + red-team)...")
+    print(
+        f"Running benchmark: {len(PUBLISHED_STRATEGIES)} strategies, up to "
+        f"{PUBLISHED_QUESTIONS} questions each ({PUBLISHED_AGENT_QUESTIONS} for the agent), "
+        "plus the red-team suite..."
+    )
     _run, report = await run_and_save_benchmark(
-        document_id, configs=None, dataset_target_size=10, write_doc=True
+        document_id,
+        configs=list(PUBLISHED_STRATEGIES),
+        dataset_target_size=PUBLISHED_QUESTIONS,
+        write_doc=True,
+        max_questions=PUBLISHED_QUESTIONS,
+        max_agent_questions=PUBLISHED_AGENT_QUESTIONS,
     )
 
     print()
