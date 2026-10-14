@@ -47,14 +47,16 @@ set in four languages (`make pii-eval`).
 # Prerequisites: Python 3.11 + uv, Node 22, Ollama (https://ollama.com)
 ollama pull llama3.2:3b          # answer model (about 2 GB)
 ollama pull llama-guard3:1b      # safety classifier
+ollama pull gemma2:2b            # optional: second judge in make eval, and the Council strategy
 
-make setup                        # .env from .env.example, backend (uv sync), frontend (npm install)
+make setup                        # backend (uv sync), .env with this install's own PII keys, frontend (npm install)
 make dev                          # API on :8000, UI on http://localhost:5173/app
 ```
 
 Then upload a document (or click **Or try the bundled sample**) and ask a question. Other
 targets: `make test`, `make lint`, `make eval` (publishes [docs/BENCHMARKS.md](docs/BENCHMARKS.md)),
-`make redteam`, `make pii-eval`, `make planner-eval`. Docker: `docker compose up`; the optional `qdrant` and `neo4j` profiles start
+`make redteam`, `make pii-eval`, `make planner-eval`. Docker: run `make setup` once (it writes
+`.env` with the PII keys), then `docker compose up`; the optional `qdrant` and `neo4j` profiles start
 those servers (set `QDRANT_URL` / `GRAPH_STORE=neo4j` to use them).
 
 ## Assignment topics and where each one lives

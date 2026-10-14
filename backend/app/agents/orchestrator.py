@@ -74,6 +74,8 @@ _DIRECT_SYNTH_PROMPT = (
     "information rather than guessing. {style}\n\n{context}\n\nQuestion: {query}\n\nAnswer:"
 )
 
+NO_EVIDENCE_ANSWER = "I don't have enough information in this document to answer that."
+
 # How long the post-answer scoring may take before the report is saved without it.
 SCORING_TIMEOUT_SECONDS = 120.0
 
@@ -243,9 +245,15 @@ async def _run_direct(
             h.set_metric("flagged_count", sum(1 for hit in hits if hit.get("flagged_injection")))
             h.set_metric("strategy", spec.id)
             h.set_output(f"{len(hits)} chunks via {spec.display_name}")
-        answer, council_run_id, routing = await _synthesize_direct(
-            session_id, query, hits, spec, detail, force_fast
-        )
+        if hits:
+            answer, council_run_id, routing = await _synthesize_direct(
+                session_id, query, hits, spec, detail, force_fast
+            )
+        else:
+            # Nothing retrieved (an empty or failed document): a model given no context answers
+            # from its own knowledge and cites passages that do not exist. Decline instead, as
+            # the agent's summarizer already does.
+            answer, council_run_id, routing = NO_EVIDENCE_ANSWER, None, None
         citations = _citations_from(answer, hits)
         steps = [
             {"node": "guardian_in", "summary": f"Input guardrail: allowed ({input_result.rule})."},

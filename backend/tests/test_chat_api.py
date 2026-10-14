@@ -161,3 +161,24 @@ async def test_chat_response_carries_a_real_estimated_quality_report(client: Asy
     stored = report.json()["quality"]
     # The stored report also carries the fields the event leaves out when they are empty.
     assert {key: stored[key] for key in quality} == quality
+
+
+async def test_a_question_with_nothing_retrieved_is_declined_without_a_model(monkeypatch) -> None:
+    """A model given no context answered from its own knowledge and cited passages that did
+    not exist; with nothing retrieved the answer is a decline, and no model is called."""
+    from app.agents import orchestrator
+    from app.rag_engines import execute
+
+    async def nothing(*_a, **_k):
+        return []
+
+    async def no_model(*_a, **_k):
+        raise AssertionError("the model must not be called without evidence")
+
+    monkeypatch.setattr(execute, "retrieve", nothing)
+    monkeypatch.setattr(orchestrator, "_synthesize_direct", no_model)
+    turn = await orchestrator.answer_question(
+        "Who approves travel?", None, "hybrid", session_id="no-evidence"
+    )
+    assert turn.answer == orchestrator.NO_EVIDENCE_ANSWER
+    assert turn.citations == []
